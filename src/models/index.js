@@ -1,0 +1,11 @@
+﻿require("./Category");
+require("./Offer");
+require("./Product");
+require("./Order");
+require("./AdminUser");
+require("./User");
+require("./Coupon");
+require("./ShippingRate");
+require("./ProductReview");
+require("./SiteSetting");
+require("./PageVisit");

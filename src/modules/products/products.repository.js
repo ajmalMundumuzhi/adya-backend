@@ -1,31 +1,39 @@
 ﻿const Product = require("../../models/Product");
 
-const findAll = (filter, skip, limit) =>
-  Product.find(filter)
+function findAll(filter = {}, skip = 0, limit = 20) {
+  return Product.find(filter)
     .populate("categoryId", "name slug")
     .populate("subcategoryIds", "name slug")
-    .populate("offerId")
+    .populate("offerId", "name discountPercentage discountAmount")
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit);
+}
 
-const count = (filter) => Product.countDocuments(filter);
+function count(filter = {}) {
+  return Product.countDocuments(filter);
+}
 
-const findById = (id) =>
-  Product.findOne({ _id: id, isActive: true })
+function findById(id) {
+  return Product.findById(id)
     .populate("categoryId", "name slug")
     .populate("subcategoryIds", "name slug")
-    .populate("offerId");
+    .populate("offerId", "name discountPercentage discountAmount");
+}
 
-const create = (data) => Product.create(data);
+function create(data) {
+  return Product.create(data);
+}
 
-const update = (id, data) =>
-  Product.findByIdAndUpdate(id, data, {
-    new: true,
+function update(id, data) {
+  return Product.findByIdAndUpdate(id, data, {
+    returnDocument: "after",
     runValidators: true
   });
+}
 
-const deactivate = (id) =>
-  Product.findByIdAndUpdate(id, { isActive: false }, { new: true });
+function deactivate(id) {
+  return Product.findByIdAndDelete(id);
+}
 
 module.exports = { findAll, count, findById, create, update, deactivate };

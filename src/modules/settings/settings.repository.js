@@ -20,7 +20,7 @@ function updateByKey(key, value) {
   return SiteSetting.findOneAndUpdate(
     { key },
     { value },
-    { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+    { returnDocument: "after", upsert: true, runValidators: true, setDefaultsOnInsert: true }
   );
 }
 
@@ -36,3 +36,4 @@ module.exports = {
   updateByKey,
   removeByKey
 };
+

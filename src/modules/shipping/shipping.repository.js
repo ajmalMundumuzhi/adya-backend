@@ -18,7 +18,7 @@ function create(data) {
 
 function update(id, data) {
   return ShippingRate.findByIdAndUpdate(id, data, {
-    new: true,
+    returnDocument: "after",
     runValidators: true
   });
 }
@@ -28,3 +28,4 @@ function remove(id) {
 }
 
 module.exports = { findAll, findById, findByCountry, create, update, remove };
+

@@ -14,9 +14,10 @@ function findByEmail(email) {
 
 function update(id, data) {
   return User.findByIdAndUpdate(id, data, {
-    new: true,
+    returnDocument: "after",
     runValidators: true
   }).select("-password -passwordResetToken -passwordResetExpires");
 }
 
 module.exports = { findAll, findById, findByEmail, update };
+

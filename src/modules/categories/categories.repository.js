@@ -1,4 +1,4 @@
-const Category = require("../../models/Category");
+﻿const Category = require("../../models/Category");
 
 function findAll(filter = {}) {
   return Category.find(filter)
@@ -20,24 +20,13 @@ function create(data) {
 
 function update(id, data) {
   return Category.findByIdAndUpdate(id, data, {
-    new: true,
+    returnDocument: "after",
     runValidators: true
   }).populate("parentId", "name slug");
 }
 
 function deactivate(id) {
-  return Category.findByIdAndUpdate(
-    id,
-    { isActive: false },
-    { new: true, runValidators: true }
-  );
+  return Category.findByIdAndDelete(id);
 }
 
-module.exports = {
-  findAll,
-  findById,
-  findBySlug,
-  create,
-  update,
-  deactivate
-};
+module.exports = { findAll, findById, findBySlug, create, update, deactivate };

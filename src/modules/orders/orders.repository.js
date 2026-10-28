@@ -14,9 +14,10 @@ function create(data) {
 
 function update(id, data) {
   return Order.findByIdAndUpdate(id, data, {
-    new: true,
+    returnDocument: "after",
     runValidators: true
   });
 }
 
 module.exports = { findAll, findById, create, update };
+
