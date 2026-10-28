@@ -1,6 +1,7 @@
 ﻿const express = require("express");
 const cors = require("cors");
 const productRoutes = require("./modules/products/products.routes");
+const shippingRoutes = require("./modules/shipping/shipping.routes");
 const couponRoutes = require("./modules/coupons/coupons.routes");
 const reviewRoutes = require("./modules/reviews/reviews.routes");
 const orderRoutes = require("./modules/orders/orders.routes");
@@ -23,6 +24,7 @@ app.get("/api/health", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes);
+app.use("/api/shipping", shippingRoutes);
 app.use("/api/coupons", couponRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/orders", orderRoutes);
@@ -34,6 +36,7 @@ app.use((req, res) => {
 });
 
 module.exports = app;
+
 
 
 
