@@ -2,7 +2,7 @@
 const cors = require("cors");
 const productRoutes = require("./modules/products/products.routes");
 const authRoutes = require("./modules/auth/auth.routes");
-
+const categoryRoutes = require("./modules/categories/categories.routes");
 
 const app = express();
 
@@ -17,8 +17,9 @@ app.get("/api/health", (req, res) => {
   res.json({ success: true, message: "ADYA API is running" });
 });
 
-app.use("/api/products", productRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/categories", categoryRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "Route not found" });
