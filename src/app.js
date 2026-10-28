@@ -1,6 +1,7 @@
 ﻿const express = require("express");
 const cors = require("cors");
 const productRoutes = require("./modules/products/products.routes");
+const offerRoutes = require("./modules/offers/offers.routes");
 const authRoutes = require("./modules/auth/auth.routes");
 const categoryRoutes = require("./modules/categories/categories.routes");
 
@@ -19,6 +20,7 @@ app.get("/api/health", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes);
+app.use("/api/offers", offerRoutes);
 app.use("/api/categories", categoryRoutes);
 
 app.use((req, res) => {
@@ -26,3 +28,4 @@ app.use((req, res) => {
 });
 
 module.exports = app;
+
