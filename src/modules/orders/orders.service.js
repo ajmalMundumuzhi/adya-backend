@@ -17,7 +17,11 @@ async function getOrder(id) {
   }
 
   const order = await repository.findById(id);
-  if (!order) throw makeError("Order not found", 404);
+
+  if (!order) {
+    throw makeError("Order not found", 404);
+  }
+
   return order;
 }
 
@@ -30,7 +34,17 @@ async function createOrder(data) {
     }
 
     const key = item.productId.toString();
-    requestedById.set(key, (requestedById.get(key) || 0) + item.quantity);
+    requestedById.set(
+      key,
+      (requestedById.get(key) || 0) + item.quantity
+    );
+  }
+
+  if (
+    data.customerId &&
+    !mongoose.isValidObjectId(data.customerId)
+  ) {
+    throw makeError("Invalid customer ID", 400);
   }
 
   const session = await mongoose.startSession();
@@ -49,16 +63,26 @@ async function createOrder(data) {
           },
           { $inc: { stock: -quantity } },
           { new: true, session }
-        ).populate({ path: "offerId", options: { session } });
+        ).populate({
+          path: "offerId",
+          options: { session }
+        });
 
         if (!product) {
-          const existing = await Product.findById(productId).session(session);
+          const existing = await Product.findById(productId)
+            .session(session);
 
           if (!existing || !existing.isActive) {
-            throw makeError("One or more products are unavailable", 400);
+            throw makeError(
+              "One or more products are unavailable",
+              400
+            );
           }
 
-          throw makeError(`Insufficient stock for ${existing.name}`, 400);
+          throw makeError(
+            `Insufficient stock for ${existing.name}`,
+            400
+          );
         }
 
         let unitPrice = product.price;
@@ -100,11 +124,13 @@ async function createOrder(data) {
       }
 
       const totalAmount = Math.round(
-        (items.reduce((sum, item) => sum + item.subtotal, 0) +
-          Number.EPSILON) * 100
+        (
+          items.reduce((sum, item) => sum + item.subtotal, 0) +
+          Number.EPSILON
+        ) * 100
       ) / 100;
 
-      const orders = await repository.create([{
+      const orderData = {
         customerName: data.customerName,
         customerEmail: data.customerEmail,
         phone: data.phone,
@@ -115,7 +141,16 @@ async function createOrder(data) {
         trackingNumber: "",
         trackingUrl: "",
         status: "pending"
-      }], { session });
+      };
+
+      if (data.customerId) {
+        orderData.customerId = data.customerId;
+      }
+
+      const orders = await repository.create(
+        [orderData],
+        { session }
+      );
 
       createdOrder = orders[0];
     });
@@ -127,6 +162,10 @@ async function createOrder(data) {
 }
 
 async function updateOrder(id, data) {
+  if (!mongoose.isValidObjectId(id)) {
+    throw makeError("Invalid order ID", 400);
+  }
+
   const session = await mongoose.startSession();
   let updatedOrder;
 
@@ -139,30 +178,47 @@ async function updateOrder(id, data) {
       }
 
       if (
-        !mongoose.isValidObjectId(id)
-      ) {
-        throw makeError("Invalid order ID", 400);
-      }
-
-      if (
         ["cancelled", "delivered"].includes(order.status) &&
         data.status &&
         data.status !== order.status
       ) {
-        throw makeError("This order status cannot be changed", 409);
+        throw makeError(
+          "This order status cannot be changed",
+          409
+        );
       }
 
-      if (data.status === "shipped" &&
-          !(data.trackingNumber || order.trackingNumber)) {
-        throw makeError("A tracking number is required before shipping", 400);
+      if (
+        data.status === "shipped" &&
+        !(data.trackingNumber || order.trackingNumber)
+      ) {
+        throw makeError(
+          "A tracking number is required before shipping",
+          400
+        );
       }
 
-      if (data.status === "cancelled" && order.status !== "cancelled") {
-        for (const [productId, quantity] of order.items.reduce((map, item) => {
-          const key = item.productId?.toString();
-          if (key) map.set(key, (map.get(key) || 0) + item.quantity);
-          return map;
-        }, new Map())) {
+      if (
+        data.status === "cancelled" &&
+        order.status !== "cancelled"
+      ) {
+        const quantitiesByProduct = order.items.reduce(
+          (map, item) => {
+            const key = item.productId?.toString();
+
+            if (key) {
+              map.set(
+                key,
+                (map.get(key) || 0) + item.quantity
+              );
+            }
+
+            return map;
+          },
+          new Map()
+        );
+
+        for (const [productId, quantity] of quantitiesByProduct) {
           const product = await Product.findByIdAndUpdate(
             productId,
             { $inc: { stock: quantity } },
@@ -189,4 +245,18 @@ async function updateOrder(id, data) {
   return updatedOrder;
 }
 
-module.exports = { listOrders, getOrder, createOrder, updateOrder };
+async function listCustomerOrders(customerId) {
+  if (!mongoose.isValidObjectId(customerId)) {
+    throw makeError("Invalid customer ID", 400);
+  }
+
+  return repository.findAll({ customerId });
+}
+
+module.exports = {
+  listOrders,
+  listCustomerOrders,
+  getOrder,
+  createOrder,
+  updateOrder
+};

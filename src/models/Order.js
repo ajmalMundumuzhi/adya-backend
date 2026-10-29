@@ -1,4 +1,5 @@
-﻿const mongoose = require("mongoose");
+﻿
+const mongoose = require("mongoose");
 
 const orderItemSchema = new mongoose.Schema({
   productId: {
@@ -15,13 +16,31 @@ const orderItemSchema = new mongoose.Schema({
 
 const orderSchema = new mongoose.Schema({
   items: { type: [orderItemSchema], default: [] },
+  customerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null,
+    index: true
+  },
   customerName: { type: String, required: true, trim: true },
-  customerEmail: { type: String, required: true, lowercase: true, trim: true },
+  customerEmail: {
+    type: String,
+    required: true,
+    lowercase: true,
+    trim: true
+  },
   phone: { type: String, default: "" },
   shippingAddress: { type: String, required: true },
   status: {
     type: String,
-    enum: ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"],
+    enum: [
+      "pending",
+      "confirmed",
+      "processing",
+      "shipped",
+      "delivered",
+      "cancelled"
+    ],
     default: "pending"
   },
   totalAmount: { type: Number, required: true, min: 0 },
@@ -31,6 +50,7 @@ const orderSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 orderSchema.index({ customerEmail: 1, createdAt: -1 });
+orderSchema.index({ customerId: 1, createdAt: -1 });
 orderSchema.index({ status: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Order", orderSchema);

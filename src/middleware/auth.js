@@ -1,4 +1,5 @@
-﻿const jwt = require("jsonwebtoken");
+﻿
+const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
 function readToken(req, res) {
@@ -13,7 +14,10 @@ function readToken(req, res) {
   }
 
   try {
-    return jwt.verify(header.slice(7), process.env.JWT_SECRET);
+    return jwt.verify(
+      header.slice(7),
+      process.env.JWT_SECRET
+    );
   } catch {
     res.status(401).json({
       success: false,
@@ -25,6 +29,7 @@ function readToken(req, res) {
 
 function requireAdmin(req, res, next) {
   const decoded = readToken(req, res);
+
   if (!decoded) return;
 
   if (decoded.role !== "admin") {
@@ -38,35 +43,77 @@ function requireAdmin(req, res, next) {
   return next();
 }
 
-async function requireCustomer(req, res, next) {
+async function authenticateCustomer(req, res) {
   const decoded = readToken(req, res);
-  if (!decoded) return;
+
+  if (!decoded) return false;
 
   if (decoded.role !== "customer") {
-    return res.status(403).json({
+    res.status(403).json({
       success: false,
       message: "Customer access required"
     });
+    return false;
   }
 
   try {
-    const user = await User.findById(decoded.id).select("_id isActive");
+    const user = await User.findById(decoded.id)
+      .select("_id isActive");
 
     if (!user || !user.isActive) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         message: "Customer account is unavailable"
       });
+      return false;
     }
 
-    req.user = { id: user._id.toString(), role: "customer" };
-    return next();
+    req.user = {
+      id: user._id.toString(),
+      role: "customer"
+    };
+
+    return true;
   } catch {
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "Internal server error"
     });
+    return false;
   }
 }
 
-module.exports = { requireAdmin, requireCustomer };
+async function requireCustomer(req, res, next) {
+  const authenticated = await authenticateCustomer(req, res);
+
+  if (!authenticated) return;
+
+  return next();
+}
+
+async function optionalCustomer(req, res, next) {
+  const header = req.headers.authorization;
+
+  if (!header) {
+    return next();
+  }
+
+  if (!header.startsWith("Bearer ")) {
+    return res.status(401).json({
+      success: false,
+      message: "Invalid authorization header"
+    });
+  }
+
+  const authenticated = await authenticateCustomer(req, res);
+
+  if (!authenticated) return;
+
+  return next();
+}
+
+module.exports = {
+  requireAdmin,
+  requireCustomer,
+  optionalCustomer
+};
