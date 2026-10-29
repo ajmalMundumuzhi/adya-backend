@@ -1,22 +1,16 @@
 ﻿const { z } = require("zod");
 
 const itemSchema = z.object({
-  productId: z.string().min(1),
-  productName: z.string().trim().min(1),
-  image: z.string().optional().default(""),
-  quantity: z.coerce.number().int().positive(),
-  unitPrice: z.coerce.number().nonnegative()
+  productId: z.string().regex(/^[a-fA-F0-9]{24}$/, "Invalid product ID"),
+  quantity: z.coerce.number().int().positive().max(100)
 });
 
 const createOrderSchema = z.object({
-  customerName: z.string().trim().min(1),
-  customerEmail: z.string().email().optional().default(""),
-  phone: z.string().trim().min(1),
-  shippingAddress: z.string().trim().min(1),
-  items: z.array(itemSchema).min(1),
-  trackingProvider: z.string().optional().default(""),
-  trackingNumber: z.string().optional().default(""),
-  trackingUrl: z.string().url().optional().or(z.literal("")).default("")
+  customerName: z.string().trim().min(1).max(100),
+  customerEmail: z.string().trim().email().optional().or(z.literal("")).default(""),
+  phone: z.string().trim().min(1).max(30),
+  shippingAddress: z.string().trim().min(1).max(1000),
+  items: z.array(itemSchema).min(1).max(50)
 });
 
 const updateOrderSchema = z.object({
