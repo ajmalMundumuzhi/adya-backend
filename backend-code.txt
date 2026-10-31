@@ -1,0 +1,813 @@
+ADYA BACKEND SOURCE FILES
+
+
+========== FILE: src/models/User.js ==========
+
+
+const mongoose = require("mongoose");
+
+const userSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+    trim: true
+  },
+  phone: {
+    type: String,
+    trim: true,
+    default: ""
+  },
+  password: {
+    type: String,
+    required: true,
+    select: false
+  },
+  emailVerifiedAt: {
+    type: Date,
+    default: null
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  passwordResetTokenHash: {
+    type: String,
+    select: false
+  },
+  passwordResetExpires: {
+    type: Date,
+    select: false
+  }
+}, {
+  timestamps: true
+});
+
+module.exports = mongoose.models.User ||
+  mongoose.model("User", userSchema);
+
+
+
+========== FILE: src/models/Wishlist.js ==========
+
+
+const mongoose = require("mongoose");
+
+const wishlistSchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true
+  },
+  productId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Product",
+    required: true
+  },
+  variantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "ProductVariant",
+    required: true
+  },
+  sizeOptionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true
+  }
+}, { timestamps: true });
+
+wishlistSchema.index(
+  { userId: 1, productId: 1, variantId: 1, sizeOptionId: 1 },
+  { unique: true }
+);
+
+module.exports = mongoose.models.Wishlist ||
+  mongoose.model("Wishlist", wishlistSchema);
+
+
+
+========== FILE: src/modules/users/users.controller.js ==========
+
+const service = require("./users.service");
+const {
+  registerSchema,
+  loginSchema,
+  updateProfileSchema,
+  updateUserStatusSchema
+} = require("./users.validation");
+
+function handleError(res, error) {
+  const status = error.statusCode ||
+    (error.name === "ZodError" || error.name === "ValidationError" ? 400 :
+    error.name === "CastError" ? 400 :
+    error.code === 11000 ? 409 : 500);
+
+  return res.status(status).json({
+    success: false,
+    message: status === 500 ? "Internal server error" : error.message
+  });
+}
+
+async function register(req, res) {
+  try {
+    const data = registerSchema.parse(req.body);
+    const result = await service.register(data);
+    return res.status(201).json({ success: true, ...result });
+  } catch (error) {
+    return handleError(res, error);
+  }
+}
+
+async function login(req, res) {
+  try {
+    const data = loginSchema.parse(req.body);
+    const result = await service.login(data.email, data.password);
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    return handleError(res, error);
+  }
+}
+
+async function list(req, res) {
+  try {
+    return res.json({ success: true, data: await service.listUsers() });
+  } catch (error) {
+    return handleError(res, error);
+  }
+}
+
+async function getMe(req, res) {
+  try {
+    return res.json({ success: true, data: await service.getUser(req.user.id) });
+  } catch (error) {
+    return handleError(res, error);
+  }
+}
+
+async function updateMe(req, res) {
+  try {
+    const data = updateProfileSchema.parse(req.body);
+    return res.json({
+      success: true,
+      data: await service.updateProfile(req.user.id, data)
+    });
+  } catch (error) {
+    return handleError(res, error);
+  }
+}
+
+async function getById(req, res) {
+  try {
+    return res.json({ success: true, data: await service.getUser(req.params.id) });
+  } catch (error) {
+    return handleError(res, error);
+  }
+}
+
+async function updateStatus(req, res) {
+  try {
+    const data = updateUserStatusSchema.parse(req.body);
+    return res.json({
+      success: true,
+      data: await service.updateStatus(req.params.id, data.isActive)
+    });
+  } catch (error) {
+    return handleError(res, error);
+  }
+}
+
+module.exports = {
+  register,
+  login,
+  list,
+  getMe,
+  updateMe,
+  getById,
+  updateStatus
+};
+
+
+
+========== FILE: src/modules/users/users.service.js ==========
+
+
+const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const repository = require("./users.repository");
+
+function makeError(message, statusCode) {
+  return Object.assign(new Error(message), { statusCode });
+}
+
+function createToken(user) {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+    throw makeError("Authentication configuration error", 500);
+  }
+
+  return jwt.sign(
+    { id: user._id.toString(), role: "customer" },
+    process.env.JWT_SECRET,
+    { expiresIn: "8h" }
+  );
+}
+
+function safeUser(user) {
+  return {
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone || "",
+    emailVerifiedAt: user.emailVerifiedAt,
+    createdAt: user.createdAt
+  };
+}
+
+async function register(data) {
+  const existing = await repository.findByEmail(data.email);
+
+  if (existing) {
+    throw makeError("Email already registered", 409);
+  }
+
+  const password = await bcrypt.hash(data.password, 12);
+
+  const user = await repository.create({
+    name: data.name,
+    email: data.email,
+    phone: data.phone || "",
+    password
+  });
+
+  return {
+    token: createToken(user),
+    user: safeUser(user)
+  };
+}
+
+async function login(email, password) {
+  const user = await repository.findByEmail(email);
+
+  if (!user || !user.isActive) {
+    throw makeError("Invalid email or password", 401);
+  }
+
+  const validPassword = await bcrypt.compare(password, user.password);
+
+  if (!validPassword) {
+    throw makeError("Invalid email or password", 401);
+  }
+
+  return {
+    token: createToken(user),
+    user: safeUser(user)
+  };
+}
+
+async function listUsers() {
+  return repository.findAll();
+}
+
+async function getUser(id) {
+  if (!mongoose.isValidObjectId(id)) {
+    throw makeError("Invalid user ID", 400);
+  }
+
+  const user = await repository.findById(id);
+
+  if (!user) {
+    throw makeError("User not found", 404);
+  }
+
+  return user;
+}
+
+async function updateProfile(id, data) {
+  const user = await getUser(id);
+
+  if (data.email && data.email !== user.email) {
+    const existing = await repository.findByEmail(data.email);
+
+    if (existing) {
+      throw makeError("Email already registered", 409);
+    }
+  }
+
+  const updated = await repository.update(id, data);
+
+  if (!updated) {
+    throw makeError("User not found", 404);
+  }
+
+  return updated;
+}
+
+async function updateStatus(id, isActive) {
+  await getUser(id);
+
+  const updated = await repository.update(id, { isActive });
+
+  if (!updated) {
+    throw makeError("User not found", 404);
+  }
+
+  return updated;
+}
+
+module.exports = {
+  register,
+  login,
+  listUsers,
+  getUser,
+  updateProfile,
+  updateStatus
+};
+
+
+========== FILE: src/modules/users/users.repository.js ==========
+
+const User = require("../../models/User");
+
+function findAll(filter = {}) {
+  return User.find(filter)
+    .select("-password -passwordResetTokenHash -passwordResetExpires")
+    .sort({ createdAt: -1 });
+}
+
+function findById(id) {
+  return User.findById(id)
+    .select("-password -passwordResetTokenHash -passwordResetExpires");
+}
+
+function findByEmail(email) {
+  return User.findOne({ email }).select("+password");
+}
+
+function create(data) {
+  return User.create(data);
+}
+
+function update(id, data) {
+  return User.findByIdAndUpdate(id, data, {
+    returnDocument: "after",
+    runValidators: true
+  }).select("-password -passwordResetTokenHash -passwordResetExpires");
+}
+
+module.exports = { findAll, findById, findByEmail, create, update };
+
+
+
+========== FILE: src/modules/users/users.validation.js ==========
+
+
+const { z } = require("zod");
+
+const phoneSchema = z.string().trim().max(20).optional().or(z.literal(""));
+
+const registerSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+  email: z.string().trim().email().transform(v => v.toLowerCase()),
+  phone: phoneSchema,
+  password: z.string().min(8).max(72)
+});
+
+const loginSchema = z.object({
+  email: z.string().trim().email().transform(v => v.toLowerCase()),
+  password: z.string().min(1).max(72)
+});
+
+const updateProfileSchema = z.object({
+  name: z.string().trim().min(2).max(100).optional(),
+  email: z.string().trim().email().transform(v => v.toLowerCase()).optional(),
+  phone: phoneSchema
+}).refine(data => Object.keys(data).length > 0, {
+  message: "Provide at least one field to update"
+});
+
+const updateUserStatusSchema = z.object({
+  isActive: z.boolean()
+});
+
+module.exports = {
+  registerSchema,
+  loginSchema,
+  updateProfileSchema,
+  updateUserStatusSchema
+};
+
+
+
+========== FILE: src/modules/users/users.routes.js ==========
+
+const express = require("express");
+const controller = require("./users.controller");
+const { requireAdmin, requireCustomer } = require("../../middleware/auth");
+
+const router = express.Router();
+
+router.post("/register", controller.register);
+router.post("/login", controller.login);
+
+router.get("/me", requireCustomer, controller.getMe);
+router.patch("/me", requireCustomer, controller.updateMe);
+
+router.get("/", requireAdmin, controller.list);
+router.get("/:id", requireAdmin, controller.getById);
+router.patch("/:id/status", requireAdmin, controller.updateStatus);
+
+module.exports = router;
+
+
+
+========== FILE: src/modules/wishlist/wishlist.controller.js ==========
+
+
+const service = require("./wishlist.service");
+
+
+function handleError(res, error) {
+  console.error("WISHLIST API ERROR:", error);
+
+  const status = error.statusCode ||
+    (error.name === "ValidationError" || error.name === "CastError" ? 400 :
+    error.code === 11000 ? 409 : 500);
+
+  return res.status(status).json({
+    success: false,
+    message: status === 500
+      ? "Internal server error"
+      : error.message
+  });
+}
+
+
+async function getWishlist(req, res) {
+  try {
+    const data = await service.getWishlist(req.user.id);
+    return res.json({ success: true, data });
+  } catch (error) {
+    return handleError(res, error);
+  }
+}
+
+async function addToWishlist(req, res) {
+  try {
+    const data = await service.addToWishlist(req.user.id, req.body);
+    return res.status(201).json({ success: true, data });
+  } catch (error) {
+    return handleError(res, error);
+  }
+}
+
+async function removeFromWishlist(req, res) {
+  try {
+    await service.removeFromWishlist(req.user.id, req.params.id);
+    return res.json({
+      success: true,
+      message: "Wishlist item removed"
+    });
+  } catch (error) {
+    return handleError(res, error);
+  }
+}
+
+module.exports = {
+  getWishlist,
+  addToWishlist,
+  removeFromWishlist
+};
+
+
+
+========== FILE: src/modules/wishlist/wishlist.service.js ==========
+
+
+const mongoose = require("mongoose");
+const Product = require("../../models/Product");
+const ProductVariant = require("../../models/ProductVariant");
+const repository = require("./wishlist.repository");
+
+function makeError(message, statusCode) {
+  return Object.assign(new Error(message), { statusCode });
+}
+
+function validateId(id, label) {
+  if (!mongoose.isValidObjectId(id)) {
+    throw makeError(`Invalid ${label}`, 400);
+  }
+}
+
+async function getWishlist(userId) {
+  return repository.findByUser(userId);
+}
+
+async function addToWishlist(userId, data) {
+  const { productId, variantId, sizeOptionId } = data;
+
+  validateId(productId, "product ID");
+  validateId(variantId, "variant ID");
+  validateId(sizeOptionId, "size option ID");
+
+  const product = await Product.findOne({
+    _id: productId,
+    isActive: true
+  }).lean();
+
+  if (!product) {
+    throw makeError("Product not found or unavailable", 404);
+  }
+
+  const variant = await ProductVariant.findOne({
+    _id: variantId,
+    productId,
+    isActive: true
+  }).lean();
+
+  if (!variant) {
+    throw makeError("Product colour variant is unavailable", 404);
+  }
+
+  const size = variant.sizes.find(
+    (item) =>
+      item._id.toString() === sizeOptionId &&
+      item.isActive !== false
+  );
+
+  if (!size) {
+    throw makeError("Selected size is unavailable", 404);
+  }
+
+  return repository.add({
+    userId,
+    productId,
+    variantId,
+    sizeOptionId
+  });
+}
+
+async function removeFromWishlist(userId, wishlistItemId) {
+  validateId(wishlistItemId, "wishlist item ID");
+
+  const result = await repository.remove({
+    _id: wishlistItemId,
+    userId
+  });
+
+  if (!result.deletedCount) {
+    throw makeError("Wishlist item not found", 404);
+  }
+
+  return true;
+}
+
+module.exports = {
+  getWishlist,
+  addToWishlist,
+  removeFromWishlist
+};
+
+
+
+========== FILE: src/modules/wishlist/wishlist.repository.js ==========
+
+
+const Wishlist = require("../../models/Wishlist");
+
+function findByUser(userId) {
+  return Wishlist.find({ userId })
+    .populate("productId")
+    .populate("variantId")
+    .sort({ createdAt: -1 })
+    .lean();
+}
+
+function findOne(filter) {
+  return Wishlist.findOne(filter).lean();
+}
+
+function add(data) {
+  return Wishlist.findOneAndUpdate(
+    {
+      userId: data.userId,
+      productId: data.productId,
+      variantId: data.variantId,
+      sizeOptionId: data.sizeOptionId
+    },
+    { $setOnInsert: data },
+    { upsert: true, new: true, runValidators: true }
+  )
+    .populate("productId")
+    .populate("variantId")
+    .lean();
+}
+
+function remove(filter) {
+  return Wishlist.deleteOne(filter);
+}
+
+module.exports = {
+  findByUser,
+  findOne,
+  add,
+  remove
+};
+
+
+
+========== FILE: src/modules/wishlist/wishlist.routes.js ==========
+
+
+const express = require("express");
+const controller = require("./wishlist.controller");
+const { requireCustomer } = require("../../middleware/auth");
+
+const router = express.Router();
+
+router.use(requireCustomer);
+
+router.get("/", controller.getWishlist);
+router.post("/", controller.addToWishlist);
+router.delete("/:id", controller.removeFromWishlist);
+
+module.exports = router;
+
+
+
+========== FILE: src/middleware/auth.js ==========
+
+
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
+
+function readToken(req, res) {
+  const header = req.headers.authorization;
+
+  if (!header || !header.startsWith("Bearer ")) {
+    res.status(401).json({
+      success: false,
+      message: "Authentication required"
+    });
+    return null;
+  }
+
+  try {
+    return jwt.verify(
+      header.slice(7),
+      process.env.JWT_SECRET
+    );
+  } catch {
+    res.status(401).json({
+      success: false,
+      message: "Invalid or expired token"
+    });
+    return null;
+  }
+}
+
+function requireAdmin(req, res, next) {
+  const decoded = readToken(req, res);
+
+  if (!decoded) return;
+
+  if (decoded.role !== "admin") {
+    return res.status(403).json({
+      success: false,
+      message: "Admin access required"
+    });
+  }
+
+  req.admin = decoded;
+  return next();
+}
+
+async function authenticateCustomer(req, res) {
+  const decoded = readToken(req, res);
+
+  if (!decoded) return false;
+
+  if (decoded.role !== "customer") {
+    res.status(403).json({
+      success: false,
+      message: "Customer access required"
+    });
+    return false;
+  }
+
+  try {
+    const user = await User.findById(decoded.id)
+      .select("_id isActive");
+
+    if (!user || !user.isActive) {
+      res.status(401).json({
+        success: false,
+        message: "Customer account is unavailable"
+      });
+      return false;
+    }
+
+    req.user = {
+      id: user._id.toString(),
+      role: "customer"
+    };
+
+    return true;
+  } catch {
+    res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+    return false;
+  }
+}
+
+async function requireCustomer(req, res, next) {
+  const authenticated = await authenticateCustomer(req, res);
+
+  if (!authenticated) return;
+
+  return next();
+}
+
+async function optionalCustomer(req, res, next) {
+  const header = req.headers.authorization;
+
+  if (!header) {
+    return next();
+  }
+
+  if (!header.startsWith("Bearer ")) {
+    return res.status(401).json({
+      success: false,
+      message: "Invalid authorization header"
+    });
+  }
+
+  const authenticated = await authenticateCustomer(req, res);
+
+  if (!authenticated) return;
+
+  return next();
+}
+
+module.exports = {
+  requireAdmin,
+  requireCustomer,
+  optionalCustomer
+};
+
+
+
+========== FILE: src/app.js ==========
+
+const express = require("express");
+const cors = require("cors");
+const productRoutes = require("./modules/products/products.routes");
+const analyticsRoutes = require("./modules/analytics/analytics.routes");
+const userRoutes = require("./modules/users/users.routes");
+const settingRoutes = require("./modules/settings/settings.routes");
+const shippingRoutes = require("./modules/shipping/shipping.routes");
+const couponRoutes = require("./modules/coupons/coupons.routes");
+const reviewRoutes = require("./modules/reviews/reviews.routes");
+const orderRoutes = require("./modules/orders/orders.routes");
+const offerRoutes = require("./modules/offers/offers.routes");
+const authRoutes = require("./modules/auth/auth.routes");
+const categoryRoutes = require("./modules/categories/categories.routes");
+const wishlistRoutes = require("./modules/wishlist/wishlist.routes");
+
+const app = express();
+
+app.use(cors({
+  origin: process.env.CLIENT_URL || "http://localhost:5173"
+}));
+
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+
+app.get("/api/health", (req, res) => {
+  res.json({ success: true, message: "ADYA API is running" });
+});
+
+app.use("/api/auth", authRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/settings", settingRoutes);
+app.use("/api/shipping", shippingRoutes);
+app.use("/api/coupons", couponRoutes);
+app.use("/api/reviews", reviewRoutes);
+app.use("/api/orders", orderRoutes);
+app.use("/api/offers", offerRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use("/api/wishlist", wishlistRoutes);
+
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: "Route not found" });
+});
+
+module.exports = app;

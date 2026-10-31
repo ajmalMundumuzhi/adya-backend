@@ -11,6 +11,10 @@ const orderRoutes = require("./modules/orders/orders.routes");
 const offerRoutes = require("./modules/offers/offers.routes");
 const authRoutes = require("./modules/auth/auth.routes");
 const categoryRoutes = require("./modules/categories/categories.routes");
+const wishlistRoutes = require("./modules/wishlist/wishlist.routes");
+const cartRoutes = require("./modules/cart/cart.routes");
+const addressRoutes = require("./modules/addresses/addresses.routes");
+const paymentSettingsRoutes = require("./modules/payment-settings/payment.settings.routes");
 
 const app = express();
 
@@ -36,17 +40,13 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/offers", offerRoutes);
 app.use("/api/categories", categoryRoutes);
+app.use("/api/wishlist", wishlistRoutes);
+app.use("/api/cart", cartRoutes);
+app.use("/api/addresses", addressRoutes);
+app.use("/api/payment-settings", paymentSettingsRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "Route not found" });
 });
 
 module.exports = app;
-
-
-
-
-
-
-
-

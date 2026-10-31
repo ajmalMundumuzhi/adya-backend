@@ -1,7 +1,12 @@
-﻿const mongoose = require("mongoose");
+﻿
+const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true },
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
   email: {
     type: String,
     required: true,
@@ -9,11 +14,35 @@ const userSchema = new mongoose.Schema({
     lowercase: true,
     trim: true
   },
-  password: { type: String, required: true, select: false },
-  emailVerifiedAt: { type: Date, default: null },
-  isActive: { type: Boolean, default: true },
-  passwordResetTokenHash: { type: String, select: false },
-  passwordResetExpires: { type: Date, select: false }
-}, { timestamps: true });
+  phone: {
+    type: String,
+    trim: true,
+    default: ""
+  },
+  password: {
+    type: String,
+    required: true,
+    select: false
+  },
+  emailVerifiedAt: {
+    type: Date,
+    default: null
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  passwordResetTokenHash: {
+    type: String,
+    select: false
+  },
+  passwordResetExpires: {
+    type: Date,
+    select: false
+  }
+}, {
+  timestamps: true
+});
 
-module.exports = mongoose.model("User", userSchema);
+module.exports = mongoose.models.User ||
+  mongoose.model("User", userSchema);

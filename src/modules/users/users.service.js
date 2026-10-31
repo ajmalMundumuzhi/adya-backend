@@ -1,4 +1,5 @@
-﻿const mongoose = require("mongoose");
+﻿
+const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const repository = require("./users.repository");
@@ -24,6 +25,7 @@ function safeUser(user) {
     id: user._id,
     name: user.name,
     email: user.email,
+    phone: user.phone || "",
     emailVerifiedAt: user.emailVerifiedAt,
     createdAt: user.createdAt
   };
@@ -37,9 +39,11 @@ async function register(data) {
   }
 
   const password = await bcrypt.hash(data.password, 12);
+
   const user = await repository.create({
     name: data.name,
     email: data.email,
+    phone: data.phone || "",
     password
   });
 
@@ -78,7 +82,11 @@ async function getUser(id) {
   }
 
   const user = await repository.findById(id);
-  if (!user) throw makeError("User not found", 404);
+
+  if (!user) {
+    throw makeError("User not found", 404);
+  }
+
   return user;
 }
 
@@ -87,18 +95,30 @@ async function updateProfile(id, data) {
 
   if (data.email && data.email !== user.email) {
     const existing = await repository.findByEmail(data.email);
-    if (existing) throw makeError("Email already registered", 409);
+
+    if (existing) {
+      throw makeError("Email already registered", 409);
+    }
   }
 
   const updated = await repository.update(id, data);
-  if (!updated) throw makeError("User not found", 404);
+
+  if (!updated) {
+    throw makeError("User not found", 404);
+  }
+
   return updated;
 }
 
 async function updateStatus(id, isActive) {
   await getUser(id);
+
   const updated = await repository.update(id, { isActive });
-  if (!updated) throw makeError("User not found", 404);
+
+  if (!updated) {
+    throw makeError("User not found", 404);
+  }
+
   return updated;
 }
 

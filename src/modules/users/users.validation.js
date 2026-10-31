@@ -1,8 +1,12 @@
-﻿const { z } = require("zod");
+﻿
+const { z } = require("zod");
+
+const phoneSchema = z.string().trim().max(20).optional().or(z.literal(""));
 
 const registerSchema = z.object({
   name: z.string().trim().min(2).max(100),
   email: z.string().trim().email().transform(v => v.toLowerCase()),
+  phone: phoneSchema,
   password: z.string().min(8).max(72)
 });
 
@@ -13,7 +17,8 @@ const loginSchema = z.object({
 
 const updateProfileSchema = z.object({
   name: z.string().trim().min(2).max(100).optional(),
-  email: z.string().trim().email().transform(v => v.toLowerCase()).optional()
+  email: z.string().trim().email().transform(v => v.toLowerCase()).optional(),
+  phone: phoneSchema
 }).refine(data => Object.keys(data).length > 0, {
   message: "Provide at least one field to update"
 });
