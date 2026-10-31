@@ -15,6 +15,7 @@ const wishlistRoutes = require("./modules/wishlist/wishlist.routes");
 const cartRoutes = require("./modules/cart/cart.routes");
 const addressRoutes = require("./modules/addresses/addresses.routes");
 const paymentSettingsRoutes = require("./modules/payment-settings/payment.settings.routes");
+const paymentTransactionRoutes = require("./modules/payment-transaction/payment.transaction.routes");
 
 const app = express();
 
@@ -44,6 +45,7 @@ app.use("/api/wishlist", wishlistRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/addresses", addressRoutes);
 app.use("/api/payment-settings", paymentSettingsRoutes);
+app.use("/api/payment-transactions", paymentTransactionRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "Route not found" });

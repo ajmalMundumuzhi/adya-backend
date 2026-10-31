@@ -1,8 +1,38 @@
-﻿const mongoose = require("mongoose");
+﻿
+const mongoose = require("mongoose");
 
-const shippingRateSchema = new mongoose.Schema({
-  country: { type: String, required: true, unique: true, trim: true },
-  rate: { type: Number, required: true, min: 0, default: 0 }
-}, { timestamps: true });
+const shippingRateSchema = new mongoose.Schema(
+  {
+    country: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    city: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    rate: {
+      type: Number,
+      required: true,
+      min: 0
+    },
+    isActive: {
+      type: Boolean,
+      default: true
+    }
+  },
+  {
+    timestamps: true
+  }
+);
 
-module.exports = mongoose.model("ShippingRate", shippingRateSchema);
+shippingRateSchema.index(
+  { country: 1, city: 1 },
+  { unique: true }
+);
+
+module.exports =
+  mongoose.models.ShippingRate ||
+  mongoose.model("ShippingRate", shippingRateSchema);
