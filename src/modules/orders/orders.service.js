@@ -253,10 +253,32 @@ async function listCustomerOrders(customerId) {
   return repository.findAll({ customerId });
 }
 
+async function getCustomerOrder(id, customerId) {
+  if (!mongoose.isValidObjectId(id)) {
+    throw makeError("Invalid order ID", 400);
+  }
+
+  if (!mongoose.isValidObjectId(customerId)) {
+    throw makeError("Invalid customer ID", 400);
+  }
+
+  const order = await repository.findCustomerOrderById(
+    id,
+    customerId
+  );
+
+  if (!order) {
+    throw makeError("Order not found", 404);
+  }
+
+  return order;
+}
+
 module.exports = {
   listOrders,
   listCustomerOrders,
   getOrder,
   createOrder,
-  updateOrder
+  updateOrder,
+  getCustomerOrder
 };

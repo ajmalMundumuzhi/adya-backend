@@ -88,10 +88,27 @@ async function update(req, res) {
   }
 }
 
+async function getMyOrder(req, res) {
+  try {
+    const order = await service.getCustomerOrder(
+      req.params.id,
+      req.user.id
+    );
+
+    return res.json({
+      success: true,
+      data: order
+    });
+  } catch (error) {
+    return handleError(res, error);
+  }
+}
+
 module.exports = {
   list,
   listMine,
   getById,
   create,
-  update
+  update,
+  getMyOrder
 };

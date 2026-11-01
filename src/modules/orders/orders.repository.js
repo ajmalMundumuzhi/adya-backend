@@ -20,4 +20,18 @@ function update(id, data) {
   });
 }
 
-module.exports = { findAll, findById, create, update };
+function findCustomerOrderById(id, customerId) {
+  return Order.findOne({
+    _id: id,
+    customerId
+  });
+}
+
+
+module.exports = { 
+  findAll, 
+  findById, 
+  create, 
+  update,
+  findCustomerOrderById
+};
