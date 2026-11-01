@@ -1,7 +1,7 @@
 ﻿const ShippingRate = require("../../models/ShippingRate");
 
 function findAll() {
-  return ShippingRate.find().sort({ country: 1 });
+  return ShippingRate.find().sort({ country: 1, city: 1 });
 }
 
 function findById(id) {
@@ -9,7 +9,20 @@ function findById(id) {
 }
 
 function findByCountry(country) {
-  return ShippingRate.findOne({ country });
+  return ShippingRate.find({
+    country: new RegExp(`^${escapeRegex(country)}$`, "i")
+  }).sort({ city: 1 });
+}
+
+function findByCountryAndCity(country, city) {
+  return ShippingRate.findOne({
+    country: new RegExp(`^${escapeRegex(country)}$`, "i"),
+    city: new RegExp(`^${escapeRegex(city)}$`, "i")
+  });
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function create(data) {
@@ -27,5 +40,12 @@ function remove(id) {
   return ShippingRate.findByIdAndDelete(id);
 }
 
-module.exports = { findAll, findById, findByCountry, create, update, remove };
-
+module.exports = {
+  findAll,
+  findById,
+  findByCountry,
+  findByCountryAndCity,
+  create,
+  update,
+  remove
+};

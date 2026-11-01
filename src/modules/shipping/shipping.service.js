@@ -17,15 +17,25 @@ async function getRate(id) {
   }
 
   const rate = await repository.findById(id);
-  if (!rate) throw makeError("Shipping rate not found", 404);
+
+  if (!rate) {
+    throw makeError("Shipping rate not found", 404);
+  }
+
   return rate;
 }
 
 async function createRate(data) {
-  const existing = await repository.findByCountry(data.country);
+  const existing = await repository.findByCountryAndCity(
+    data.country,
+    data.city
+  );
 
   if (existing) {
-    throw makeError("A shipping rate already exists for this country", 409);
+    throw makeError(
+      "A shipping rate already exists for this country and city",
+      409
+    );
   }
 
   return repository.create(data);
@@ -34,11 +44,19 @@ async function createRate(data) {
 async function updateRate(id, data) {
   await getRate(id);
 
-  if (data.country) {
-    const existing = await repository.findByCountry(data.country);
+  if (data.country || data.city) {
+    const currentRate = await repository.findById(id);
+
+    const country = data.country || currentRate.country;
+    const city = data.city || currentRate.city;
+
+    const existing = await repository.findByCountryAndCity(country, city);
 
     if (existing && existing._id.toString() !== id) {
-      throw makeError("A shipping rate already exists for this country", 409);
+      throw makeError(
+        "A shipping rate already exists for this country and city",
+        409
+      );
     }
   }
 
@@ -50,12 +68,29 @@ async function deleteRate(id) {
   await repository.remove(id);
 }
 
-async function getRateByCountry(country) {
+async function getRatesByCountry(country) {
   const normalizedCountry = country.trim();
-  const rate = await repository.findByCountry(normalizedCountry);
 
-  if (!rate) {
-    throw makeError("Shipping rate not configured for this country", 404);
+  const rates = await repository.findByCountry(normalizedCountry);
+
+  if (!rates.length) {
+    throw makeError("Shipping rates not configured for this country", 404);
+  }
+
+  return rates;
+}
+
+async function getRateByCountryAndCity(country, city) {
+  const rate = await repository.findByCountryAndCity(
+    country.trim(),
+    city.trim()
+  );
+
+  if (!rate || !rate.isActive) {
+    throw makeError(
+      "Shipping is not available for this city. Please contact support.",
+      404
+    );
   }
 
   return rate;
@@ -67,5 +102,6 @@ module.exports = {
   createRate,
   updateRate,
   deleteRate,
-  getRateByCountry
+  getRatesByCountry,
+  getRateByCountryAndCity
 };

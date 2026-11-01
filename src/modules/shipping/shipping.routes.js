@@ -7,6 +7,7 @@ const router = express.Router();
 router.get("/country", controller.getByCountry);
 router.get("/", controller.list);
 router.get("/:id", controller.getById);
+
 router.post("/", requireAdmin, controller.create);
 router.patch("/:id", requireAdmin, controller.update);
 router.delete("/:id", requireAdmin, controller.remove);

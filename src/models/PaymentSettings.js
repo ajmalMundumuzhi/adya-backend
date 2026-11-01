@@ -51,7 +51,7 @@ const paymentSettingSchema = new mongoose.Schema(
     },
     defaultCurrency: {
       type: String,
-      default: "INR",
+      default: "AUD",
       uppercase: true,
       trim: true
     }

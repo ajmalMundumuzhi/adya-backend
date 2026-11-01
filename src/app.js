@@ -16,6 +16,9 @@ const cartRoutes = require("./modules/cart/cart.routes");
 const addressRoutes = require("./modules/addresses/addresses.routes");
 const paymentSettingsRoutes = require("./modules/payment-settings/payment.settings.routes");
 const paymentTransactionRoutes = require("./modules/payment-transaction/payment.transaction.routes");
+const currencyRoutes = require("./modules/currency/currency.routes");
+const checkoutRoutes = require("./modules/checkout/checkout.routes");
+
 
 const app = express();
 
@@ -46,6 +49,8 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/addresses", addressRoutes);
 app.use("/api/payment-settings", paymentSettingsRoutes);
 app.use("/api/payment-transactions", paymentTransactionRoutes);
+app.use("/api/currency", currencyRoutes);
+app.use("/api/checkout", checkoutRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "Route not found" });

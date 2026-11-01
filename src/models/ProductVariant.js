@@ -61,4 +61,6 @@ const productVariantSchema = new mongoose.Schema({
 
 productVariantSchema.index({ productId: 1, isActive: 1 });
 
-module.exports = mongoose.model("ProductVariant", productVariantSchema);
+module.exports =
+  mongoose.models.ProductVariant ||
+  mongoose.model("ProductVariant", productVariantSchema);
