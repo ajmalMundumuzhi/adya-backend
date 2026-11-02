@@ -1,4 +1,7 @@
-﻿const SiteSetting = require("../../models/SiteSetting");
+﻿
+const SiteSetting = require("../../models/SiteSetting");
+
+console.log("SiteSetting model:", typeof SiteSetting.findOne);
 
 function findAll() {
   return SiteSetting.find().sort({ key: 1 });
@@ -19,8 +22,13 @@ function create(data) {
 function updateByKey(key, value) {
   return SiteSetting.findOneAndUpdate(
     { key },
-    { value },
-    { returnDocument: "after", upsert: true, runValidators: true, setDefaultsOnInsert: true }
+    { $set: { value } },
+    {
+      returnDocument: "after",
+      upsert: true,
+      runValidators: true,
+      setDefaultsOnInsert: true
+    }
   );
 }
 
@@ -36,4 +44,3 @@ module.exports = {
   updateByKey,
   removeByKey
 };
-

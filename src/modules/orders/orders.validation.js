@@ -1,16 +1,29 @@
-﻿const { z } = require("zod");
+﻿
+const { z } = require("zod");
 
-const itemSchema = z.object({
-  productId: z.string().regex(/^[a-fA-F0-9]{24}$/, "Invalid product ID"),
-  quantity: z.coerce.number().int().positive().max(100)
-});
+const objectId = z.string().regex(/^[a-fA-F0-9]{24}$/, "Invalid ID");
+
+const supportedCurrencies = [
+  "AUD",
+  "NZD",
+  "USD",
+  "CAD",
+  "GBP",
+  "MYR",
+  "SGD"
+];
 
 const createOrderSchema = z.object({
-  customerName: z.string().trim().min(1).max(100),
-  customerEmail: z.string().trim().email().optional().or(z.literal("")).default(""),
-  phone: z.string().trim().min(1).max(30),
-  shippingAddress: z.string().trim().min(1).max(1000),
-  items: z.array(itemSchema).min(1).max(50)
+  addressId: objectId,
+  currency: z.enum(supportedCurrencies),
+  items: z.array(
+    z.object({
+      productId: objectId,
+      variantId: objectId,
+      sizeOptionId: objectId,
+      quantity: z.coerce.number().int().min(1).max(100)
+    })
+  ).min(1).max(50)
 });
 
 const updateOrderSchema = z.object({
@@ -22,11 +35,15 @@ const updateOrderSchema = z.object({
     "delivered",
     "cancelled"
   ]).optional(),
-  trackingProvider: z.string().optional(),
-  trackingNumber: z.string().optional(),
-  trackingUrl: z.string().url().optional().or(z.literal(""))
-}).refine(data => Object.keys(data).length > 0, {
-  message: "Provide at least one field to update"
-});
+  trackingProvider: z.string().trim().max(100).optional(),
+  trackingNumber: z.string().trim().max(100).optional(),
+  trackingUrl: z.string().trim().url().optional().or(z.literal(""))
+}).refine(
+  data => Object.keys(data).length > 0,
+  { message: "Provide at least one field to update" }
+);
 
-module.exports = { createOrderSchema, updateOrderSchema };
+module.exports = {
+  createOrderSchema,
+  updateOrderSchema
+};

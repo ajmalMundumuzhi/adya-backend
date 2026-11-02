@@ -1,284 +1,390 @@
 ﻿
 const mongoose = require("mongoose");
-const repository = require("./orders.repository");
+const Order = require("../../models/Order");
 const Product = require("../../models/Product");
+const ProductVariant = require("../../models/ProductVariant");
+const Address = require("../../models/Address");
+const User = require("../../models/User");
+const ShippingRate = require("../../models/ShippingRate");
+const { getCurrencyRates } = require("../currency/currency.service");
 
-function makeError(message, statusCode) {
-  return Object.assign(new Error(message), { statusCode });
+const SUPPORTED_COUNTRIES = {
+  Australia: "AUD",
+  "New Zealand": "NZD",
+  "United States": "USD",
+  Canada: "CAD",
+  "United Kingdom": "GBP",
+  Malaysia: "MYR",
+  Singapore: "SGD"
+};
+
+const roundMoney = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+
+function createOrderNumber() {
+  return `ADY-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
-async function listOrders() {
-  return repository.findAll();
+function normalizeCountry(country) {
+  const value = String(country || "").trim().toLowerCase();
+
+  const aliases = {
+    australia: "Australia",
+    au: "Australia",
+    "new zealand": "New Zealand",
+    nz: "New Zealand",
+    "united states": "United States",
+    "united states of america": "United States",
+    usa: "United States",
+    us: "United States",
+    canada: "Canada",
+    ca: "Canada",
+    "united kingdom": "United Kingdom",
+    uk: "United Kingdom",
+    gb: "United Kingdom",
+    malaysia: "Malaysia",
+    my: "Malaysia",
+    singapore: "Singapore",
+    sg: "Singapore"
+  };
+
+  return aliases[value] || null;
 }
 
-async function getOrder(id) {
-  if (!mongoose.isValidObjectId(id)) {
-    throw makeError("Invalid order ID", 400);
+async function reserveVariantStock(item, session) {
+  const variant = await ProductVariant.findOneAndUpdate(
+    {
+      _id: item.variantId,
+      productId: item.productId,
+      isActive: true,
+      sizes: {
+        $elemMatch: {
+          _id: item.sizeOptionId,
+          isActive: true,
+          stock: { $gte: item.quantity }
+        }
+      }
+    },
+    {
+      $inc: {
+        "sizes.$.stock": -item.quantity
+      }
+    },
+    {
+      new: true,
+      session
+    }
+  );
+
+  if (!variant) {
+    throw new Error("A selected product size is unavailable or has insufficient stock");
   }
 
-  const order = await repository.findById(id);
+  return variant;
+}
 
-  if (!order) {
-    throw makeError("Order not found", 404);
+async function releaseOrderStock(order, session) {
+  if (!order.stockReserved) return;
+
+  for (const item of order.items) {
+    const result = await ProductVariant.updateOne(
+      {
+        _id: item.variantId,
+        productId: item.productId,
+        "sizes._id": item.sizeOptionId
+      },
+      {
+        $inc: {
+          "sizes.$.stock": item.quantity
+        }
+      },
+      { session }
+    );
+
+    if (result.matchedCount === 0) {
+      throw new Error(`Unable to restore stock for ${item.productName}`);
+    }
   }
 
-  return order;
+  order.stockReserved = false;
+  order.stockReservationExpiresAt = null;
 }
 
 async function createOrder(data) {
-  const requestedById = new Map();
-
-  for (const item of data.items) {
-    if (!mongoose.isValidObjectId(item.productId)) {
-      throw makeError("Invalid product ID", 400);
-    }
-
-    const key = item.productId.toString();
-    requestedById.set(
-      key,
-      (requestedById.get(key) || 0) + item.quantity
-    );
-  }
-
-  if (
-    data.customerId &&
-    !mongoose.isValidObjectId(data.customerId)
-  ) {
-    throw makeError("Invalid customer ID", 400);
-  }
-
   const session = await mongoose.startSession();
   let createdOrder;
 
   try {
     await session.withTransaction(async () => {
-      const items = [];
+      const customerId = data.customerId;
 
-      for (const [productId, quantity] of requestedById) {
-        const product = await Product.findOneAndUpdate(
-          {
-            _id: productId,
-            isActive: true,
-            stock: { $gte: quantity }
-          },
-          { $inc: { stock: -quantity } },
-          { new: true, session }
-        ).populate({
-          path: "offerId",
-          options: { session }
-        });
-
-        if (!product) {
-          const existing = await Product.findById(productId)
-            .session(session);
-
-          if (!existing || !existing.isActive) {
-            throw makeError(
-              "One or more products are unavailable",
-              400
-            );
-          }
-
-          throw makeError(
-            `Insufficient stock for ${existing.name}`,
-            400
-          );
-        }
-
-        let unitPrice = product.price;
-        const offer = product.offerId;
-
-        if (offer) {
-          if (
-            typeof offer.discountPercentage === "number" &&
-            offer.discountPercentage > 0
-          ) {
-            unitPrice *= 1 - offer.discountPercentage / 100;
-          } else if (
-            typeof offer.discountAmount === "number" &&
-            offer.discountAmount > 0
-          ) {
-            unitPrice -= offer.discountAmount;
-          }
-        }
-
-        unitPrice = Math.max(
-          0,
-          Math.round((unitPrice + Number.EPSILON) * 100) / 100
-        );
-
-        for (const item of data.items.filter(
-          entry => entry.productId.toString() === productId
-        )) {
-          items.push({
-            productId: product._id,
-            productName: product.name,
-            image: product.imagePath || product.images?.[0] || "",
-            quantity: item.quantity,
-            unitPrice,
-            subtotal: Math.round(
-              (unitPrice * item.quantity + Number.EPSILON) * 100
-            ) / 100
-          });
-        }
+      if (!customerId) {
+        throw new Error("Customer authentication is required");
       }
 
-      const totalAmount = Math.round(
-        (
-          items.reduce((sum, item) => sum + item.subtotal, 0) +
-          Number.EPSILON
-        ) * 100
-      ) / 100;
+      const address = await Address.findOne({
+        _id: data.addressId,
+        userId: customerId
+      }).session(session);
 
-      const orderData = {
-        customerName: data.customerName,
-        customerEmail: data.customerEmail,
-        phone: data.phone,
-        shippingAddress: data.shippingAddress,
-        items,
-        totalAmount,
-        trackingProvider: "",
-        trackingNumber: "",
-        trackingUrl: "",
-        status: "pending"
-      };
-
-      if (data.customerId) {
-        orderData.customerId = data.customerId;
+      if (!address) {
+        throw new Error("Delivery address was not found");
       }
 
-      const orders = await repository.create(
-        [orderData],
-        { session }
+      const country = normalizeCountry(address.country);
+
+      if (!country) {
+        throw new Error("Delivery is available only in the seven supported countries");
+      }
+
+      const expectedCurrency = SUPPORTED_COUNTRIES[country];
+
+      if (data.currency !== expectedCurrency) {
+        throw new Error("Selected currency does not match the delivery country");
+      }
+
+      const user = await User.findById(customerId).session(session);
+
+      if (!user) {
+        throw new Error("Customer account was not found");
+      }
+
+      const customerEmail = user.email || user.customerEmail;
+
+      if (!customerEmail) {
+        throw new Error("Your account does not have an email address");
+      }
+
+      const shippingRate = await ShippingRate.findOne({
+        country,
+        city: address.city.trim(),
+        isActive: true
+      }).session(session);
+
+      if (!shippingRate) {
+        throw new Error("Shipping is not available for this city yet");
+      }
+
+      const currencyData = await getCurrencyRates(data.currency);
+      const exchangeRate = Number(
+        currencyData.exchangeRate ??
+        currencyData.rates?.[data.currency] ??
+        1
       );
 
-      createdOrder = orders[0];
+      if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
+        throw new Error("Unable to obtain a valid exchange rate");
+      }
+
+      const exchangeRateDate = currencyData.rateDate || new Date().toISOString().slice(0, 10);
+      const exchangeRateFetchedAt = currencyData.fetchedAt
+        ? new Date(currencyData.fetchedAt)
+        : new Date();
+
+      const mergedItems = new Map();
+
+      for (const item of data.items) {
+        const key = `${item.productId}:${item.variantId}:${item.sizeOptionId}`;
+        const existing = mergedItems.get(key);
+
+        if (existing) {
+          existing.quantity += item.quantity;
+        } else {
+          mergedItems.set(key, { ...item });
+        }
+      }
+
+      const requestedItems = [...mergedItems.values()];
+
+      if (requestedItems.some(item => item.quantity > 100)) {
+        throw new Error("Maximum quantity per product size is 100");
+      }
+
+      const orderItems = [];
+      let subtotalAUD = 0;
+
+      for (const item of requestedItems) {
+        const product = await Product.findOne({
+          _id: item.productId,
+          isActive: true
+        }).session(session);
+
+        if (!product) {
+          throw new Error("A selected product is no longer available");
+        }
+
+        const variant = await reserveVariantStock(item, session);
+
+        const sizeOption = variant.sizes.id(item.sizeOptionId);
+
+        if (!sizeOption || !sizeOption.isActive) {
+          throw new Error("A selected size is no longer available");
+        }
+
+        const unitPriceAUD = Number(sizeOption.price);
+
+        if (!Number.isFinite(unitPriceAUD) || unitPriceAUD < 0) {
+          throw new Error("Invalid product price");
+        }
+
+        const unitPrice = roundMoney(unitPriceAUD * exchangeRate);
+        const itemSubtotal = roundMoney(unitPrice * item.quantity);
+
+        subtotalAUD += unitPriceAUD * item.quantity;
+
+        orderItems.push({
+          productId: product._id,
+          variantId: variant._id,
+          sizeOptionId: sizeOption._id,
+          productName: product.name,
+          image: variant.images?.[0] || "",
+          variantColor: variant.color,
+          selectedSize: sizeOption.size,
+          sku: sizeOption.sku || "",
+          quantity: item.quantity,
+          unitPriceAUD,
+          unitPrice,
+          subtotal: itemSubtotal
+        });
+      }
+
+      subtotalAUD = roundMoney(subtotalAUD);
+
+      const shippingChargeAUD = roundMoney(shippingRate.rate);
+      const totalAmountAUD = roundMoney(subtotalAUD + shippingChargeAUD);
+
+      const subtotal = roundMoney(subtotalAUD * exchangeRate);
+      const shippingCharge = roundMoney(shippingChargeAUD * exchangeRate);
+      const totalAmount = roundMoney(subtotal + shippingCharge);
+
+      const shippingAddress = {
+        fullName: address.fullName,
+        phone: address.phone,
+        addressLine1: address.addressLine1,
+        addressLine2: address.addressLine2 || "",
+        city: address.city,
+        state: address.state,
+        postalCode: address.postalCode,
+        country
+      };
+
+      const order = new Order({
+        orderNumber: createOrderNumber(),
+        items: orderItems,
+        customerId,
+        customerName: address.fullName,
+        customerEmail,
+        phone: address.phone,
+        addressId: address._id,
+        shippingAddress,
+        country,
+        city: address.city,
+        subtotalAUD,
+        shippingChargeAUD,
+        totalAmountAUD,
+        exchangeRate,
+        exchangeRateDate,
+        exchangeRateFetchedAt,
+        subtotal,
+        shippingCharge,
+        totalAmount,
+        currency: data.currency,
+        paymentMethod: "stripe",
+        paymentStatus: "pending",
+        status: "pending",
+        stockReserved: true,
+        stockReservationExpiresAt: new Date(Date.now() + 30 * 60 * 1000)
+      });
+
+      await order.save({ session });
+      createdOrder = order;
     });
+
+    return createdOrder;
   } finally {
     await session.endSession();
   }
-
-  return createdOrder;
 }
 
 async function updateOrder(id, data) {
-  if (!mongoose.isValidObjectId(id)) {
-    throw makeError("Invalid order ID", 400);
-  }
-
   const session = await mongoose.startSession();
   let updatedOrder;
 
   try {
     await session.withTransaction(async () => {
-      const order = await repository.findById(id, { session });
+      const order = await Order.findById(id).session(session);
 
       if (!order) {
-        throw makeError("Order not found", 404);
+        throw new Error("Order not found");
       }
 
-      if (
-        ["cancelled", "delivered"].includes(order.status) &&
-        data.status &&
-        data.status !== order.status
-      ) {
-        throw makeError(
-          "This order status cannot be changed",
-          409
-        );
+      if (["delivered", "cancelled"].includes(order.status)) {
+        throw new Error("This order can no longer be updated");
       }
 
-      if (
-        data.status === "shipped" &&
-        !(data.trackingNumber || order.trackingNumber)
-      ) {
-        throw makeError(
-          "A tracking number is required before shipping",
-          400
-        );
+      if (data.status === "shipped" && !data.trackingNumber && !order.trackingNumber) {
+        throw new Error("A tracking number is required before shipping");
       }
 
-      if (
-        data.status === "cancelled" &&
-        order.status !== "cancelled"
-      ) {
-        const quantitiesByProduct = order.items.reduce(
-          (map, item) => {
-            const key = item.productId?.toString();
-
-            if (key) {
-              map.set(
-                key,
-                (map.get(key) || 0) + item.quantity
-              );
-            }
-
-            return map;
-          },
-          new Map()
-        );
-
-        for (const [productId, quantity] of quantitiesByProduct) {
-          const product = await Product.findByIdAndUpdate(
-            productId,
-            { $inc: { stock: quantity } },
-            { new: true, session }
-          );
-
-          if (!product) {
-            throw makeError(
-              "Cannot restore stock because a product no longer exists",
-              409
-            );
-          }
+      if (data.status === "cancelled") {
+        if (order.paymentStatus === "paid") {
+          throw new Error("A paid order must be refunded before cancellation");
         }
+
+        await releaseOrderStock(order, session);
+        order.paymentStatus = "failed";
       }
 
-      order.set(data);
+      if (data.status) {
+        order.status = data.status;
+      }
+
+      if (data.trackingProvider !== undefined) {
+        order.trackingProvider = data.trackingProvider;
+      }
+
+      if (data.trackingNumber !== undefined) {
+        order.trackingNumber = data.trackingNumber;
+      }
+
+      if (data.trackingUrl !== undefined) {
+        order.trackingUrl = data.trackingUrl;
+      }
+
       await order.save({ session });
       updatedOrder = order;
     });
+
+    return updatedOrder;
   } finally {
     await session.endSession();
   }
+}
 
-  return updatedOrder;
+async function listOrders() {
+  return Order.find().sort({ createdAt: -1 });
+}
+
+async function getOrder(id) {
+  const order = await Order.findById(id);
+  if (!order) throw new Error("Order not found");
+  return order;
 }
 
 async function listCustomerOrders(customerId) {
-  if (!mongoose.isValidObjectId(customerId)) {
-    throw makeError("Invalid customer ID", 400);
-  }
-
-  return repository.findAll({ customerId });
+  return Order.find({ customerId }).sort({ createdAt: -1 });
 }
 
 async function getCustomerOrder(id, customerId) {
-  if (!mongoose.isValidObjectId(id)) {
-    throw makeError("Invalid order ID", 400);
-  }
-
-  if (!mongoose.isValidObjectId(customerId)) {
-    throw makeError("Invalid customer ID", 400);
-  }
-
-  const order = await repository.findCustomerOrderById(
-    id,
-    customerId
-  );
-
-  if (!order) {
-    throw makeError("Order not found", 404);
-  }
-
+  const order = await Order.findOne({ _id: id, customerId });
+  if (!order) throw new Error("Order not found");
   return order;
 }
 
 module.exports = {
-  listOrders,
-  listCustomerOrders,
-  getOrder,
   createOrder,
   updateOrder,
+  listOrders,
+  getOrder,
+  listCustomerOrders,
   getCustomerOrder
 };

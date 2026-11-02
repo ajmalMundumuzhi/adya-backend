@@ -11,7 +11,7 @@ const paymentTransactionSchema = new mongoose.Schema(
     },
     customerId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Customer",
+      ref: "User",
       default: null,
       index: true
     },

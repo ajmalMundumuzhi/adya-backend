@@ -326,5 +326,6 @@ async function createCodOrder(userId, data) {
 
 module.exports = {
   previewCheckout,
-  createCodOrder
+  createCodOrder,
+  buildCheckoutForStripe: buildCheckout
 };

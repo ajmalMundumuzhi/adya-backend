@@ -18,13 +18,20 @@ const paymentSettingsRoutes = require("./modules/payment-settings/payment.settin
 const paymentTransactionRoutes = require("./modules/payment-transaction/payment.transaction.routes");
 const currencyRoutes = require("./modules/currency/currency.routes");
 const checkoutRoutes = require("./modules/checkout/checkout.routes");
-
+const inventoryRoutes = require("./modules/inventory/inventory.routes");
+const stripeWebhookRoutes = require("./modules/payment-transaction/stripe.webhook.routes");
 
 const app = express();
 
 app.use(cors({
   origin: process.env.CLIENT_URL || "http://localhost:5173"
 }));
+
+app.use(
+  "/api/payment-transactions/webhook",
+  express.raw({ type: "application/json" }),
+  stripeWebhookRoutes
+);
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
@@ -51,6 +58,8 @@ app.use("/api/payment-settings", paymentSettingsRoutes);
 app.use("/api/payment-transactions", paymentTransactionRoutes);
 app.use("/api/currency", currencyRoutes);
 app.use("/api/checkout", checkoutRoutes);
+app.use("/api/inventory", inventoryRoutes);
+
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "Route not found" });

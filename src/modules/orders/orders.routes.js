@@ -8,7 +8,7 @@ const {
 
 const router = express.Router();
 
-router.post("/", optionalCustomer, controller.create);
+router.post("/", requireCustomer, controller.create);
 
 router.get("/mine", requireCustomer, controller.listMine);
 router.get("/mine/:id", requireCustomer, controller.getMyOrder);

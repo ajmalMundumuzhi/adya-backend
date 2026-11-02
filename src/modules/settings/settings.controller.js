@@ -2,6 +2,8 @@
 const { settingSchema, updateSettingSchema } = require("./settings.validation");
 
 function handleError(res, error) {
+  console.error("Settings API Error:", error);
+
   const status = error.statusCode ||
     (error.name === "ZodError" || error.name === "ValidationError" ? 400 :
     error.code === 11000 ? 409 : 500);

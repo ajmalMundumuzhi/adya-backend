@@ -4,6 +4,7 @@ const {
   checkoutPreviewSchema,
   createCheckoutSchema
 } = require("./checkout.validation");
+const stripeCheckoutService = require("./stripe.checkout.service");
 
 function handleError(res, error) {
   const status =
@@ -61,7 +62,31 @@ async function createOrder(req, res) {
   }
 }
 
+async function createStripeSession(req, res) {
+  try {
+    const data = checkoutPreviewSchema.parse(req.body);
+
+    const result = await stripeCheckoutService.createStripeCheckout(
+      req.user.id,
+      data
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Stripe Checkout Session created successfully",
+      data: result
+    });
+  } catch (error) {
+  console.error("STRIPE CHECKOUT ERROR:", error);
+  return res.status(500).json({
+    success: false,
+    message: error.message || "Internal server error"
+  });
+}
+}
+
 module.exports = {
   preview,
-  createOrder
+  createOrder,
+  createStripeSession
 };
