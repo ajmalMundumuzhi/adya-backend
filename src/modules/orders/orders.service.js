@@ -305,6 +305,7 @@ async function createOrder(data) {
   }
 }
 
+
 async function updateOrder(id, data) {
   const session = await mongoose.startSession();
   let updatedOrder;
@@ -314,44 +315,79 @@ async function updateOrder(id, data) {
       const order = await Order.findById(id).session(session);
 
       if (!order) {
-        throw new Error("Order not found");
+        const error = new Error("Order not found");
+        error.statusCode = 404;
+        throw error;
       }
 
       if (["delivered", "cancelled"].includes(order.status)) {
-        throw new Error("This order can no longer be updated");
+        const error = new Error("This order can no longer be updated");
+        error.statusCode = 409;
+        throw error;
       }
 
-      if (data.status === "shipped" && !data.trackingNumber && !order.trackingNumber) {
-        throw new Error("A tracking number is required before shipping");
+      if (
+        data.status === "shipped" &&
+        !data.trackingNumber &&
+        !order.trackingNumber
+      ) {
+        const error = new Error(
+          "A tracking number is required before shipping"
+        );
+        error.statusCode = 400;
+        throw error;
       }
+
+      const updateFields = {};
 
       if (data.status === "cancelled") {
         if (order.paymentStatus === "paid") {
-          throw new Error("A paid order must be refunded before cancellation");
+          const error = new Error(
+            "A paid order must be refunded before cancellation"
+          );
+          error.statusCode = 409;
+          throw error;
         }
 
         await releaseOrderStock(order, session);
-        order.paymentStatus = "failed";
+
+        updateFields.paymentStatus = "failed";
+        updateFields.stockReserved = false;
+        updateFields.stockReservationExpiresAt = null;
       }
 
-      if (data.status) {
-        order.status = data.status;
+      if (data.status !== undefined) {
+        updateFields.status = data.status;
       }
 
       if (data.trackingProvider !== undefined) {
-        order.trackingProvider = data.trackingProvider;
+        updateFields.trackingProvider = data.trackingProvider;
       }
 
       if (data.trackingNumber !== undefined) {
-        order.trackingNumber = data.trackingNumber;
+        updateFields.trackingNumber = data.trackingNumber;
       }
 
       if (data.trackingUrl !== undefined) {
-        order.trackingUrl = data.trackingUrl;
+        updateFields.trackingUrl = data.trackingUrl;
       }
 
-      await order.save({ session });
-      updatedOrder = order;
+      const result = await Order.updateOne(
+        { _id: id },
+        { $set: updateFields },
+        {
+          session,
+          runValidators: true
+        }
+      );
+
+      if (result.matchedCount === 0) {
+        const error = new Error("Order not found");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      updatedOrder = await Order.findById(id).session(session);
     });
 
     return updatedOrder;
@@ -359,6 +395,7 @@ async function updateOrder(id, data) {
     await session.endSession();
   }
 }
+
 
 async function listOrders() {
   return Order.find().sort({ createdAt: -1 });
