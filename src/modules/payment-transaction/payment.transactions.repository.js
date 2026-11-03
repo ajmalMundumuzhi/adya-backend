@@ -27,17 +27,25 @@ async function findByStripeSessionId(sessionId) {
   });
 }
 
-async function findByStripePaymentIntentId(paymentIntentId) {
+async function findByOrderId(orderId) {
   return PaymentTransaction.findOne({
-    stripePaymentIntentId: paymentIntentId
-  });
+    orderId,
+    transactionType: "payment",
+    status: {
+      $in: ["initiated", "pending", "succeeded"]
+    }
+  }).sort({ createdAt: -1 });
 }
 
-async function updateTransaction(id, data) {
+async function updateTransaction(id, data, options = {}) {
   return PaymentTransaction.findByIdAndUpdate(
     id,
     { $set: data },
-    { new: true, runValidators: true }
+    {
+      returnDocument: "after",
+      runValidators: true,
+      ...options
+    }
   );
 }
 
@@ -47,6 +55,6 @@ module.exports = {
   countTransactions,
   findTransactionById,
   findByStripeSessionId,
-  findByStripePaymentIntentId,
+  findByOrderId,
   updateTransaction
 };

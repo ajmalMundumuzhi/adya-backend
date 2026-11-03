@@ -124,7 +124,6 @@ paymentTransactionSchema.index(
   }
 );
 
-module.exports = mongoose.model(
-  "PaymentTransaction",
-  paymentTransactionSchema
-);
+module.exports =
+  mongoose.models.PaymentTransaction ||
+  mongoose.model("PaymentTransaction", paymentTransactionSchema);

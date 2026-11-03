@@ -1,5 +1,6 @@
 ﻿
 const mongoose = require("mongoose");
+
 const Order = require("../../models/Order");
 const Product = require("../../models/Product");
 const ProductVariant = require("../../models/ProductVariant");
@@ -18,7 +19,8 @@ const SUPPORTED_COUNTRIES = {
   Singapore: "SGD"
 };
 
-const roundMoney = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+const roundMoney = value =>
+  Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 
 function createOrderNumber() {
   return `ADY-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -70,13 +72,16 @@ async function reserveVariantStock(item, session) {
       }
     },
     {
-      new: true,
+      returnDocument: "after",
+      runValidators: true,
       session
     }
   );
 
   if (!variant) {
-    throw new Error("A selected product size is unavailable or has insufficient stock");
+    throw new Error(
+      "A selected product size is unavailable or has insufficient stock"
+    );
   }
 
   return variant;
@@ -133,7 +138,9 @@ async function createOrder(data) {
       const country = normalizeCountry(address.country);
 
       if (!country) {
-        throw new Error("Delivery is available only in the seven supported countries");
+        throw new Error(
+          "Delivery is available only in the seven supported countries"
+        );
       }
 
       const expectedCurrency = SUPPORTED_COUNTRIES[country];
@@ -165,6 +172,7 @@ async function createOrder(data) {
       }
 
       const currencyData = await getCurrencyRates(data.currency);
+
       const exchangeRate = Number(
         currencyData.exchangeRate ??
         currencyData.rates?.[data.currency] ??
@@ -175,7 +183,9 @@ async function createOrder(data) {
         throw new Error("Unable to obtain a valid exchange rate");
       }
 
-      const exchangeRateDate = currencyData.rateDate || new Date().toISOString().slice(0, 10);
+      const exchangeRateDate =
+        currencyData.rateDate || new Date().toISOString().slice(0, 10);
+
       const exchangeRateFetchedAt = currencyData.fetchedAt
         ? new Date(currencyData.fetchedAt)
         : new Date();
@@ -213,7 +223,6 @@ async function createOrder(data) {
         }
 
         const variant = await reserveVariantStock(item, session);
-
         const sizeOption = variant.sizes.id(item.sizeOptionId);
 
         if (!sizeOption || !sizeOption.isActive) {
@@ -305,7 +314,6 @@ async function createOrder(data) {
   }
 }
 
-
 async function updateOrder(id, data) {
   const session = await mongoose.startSession();
   let updatedOrder;
@@ -396,14 +404,15 @@ async function updateOrder(id, data) {
   }
 }
 
-
 async function listOrders() {
   return Order.find().sort({ createdAt: -1 });
 }
 
 async function getOrder(id) {
   const order = await Order.findById(id);
+
   if (!order) throw new Error("Order not found");
+
   return order;
 }
 
@@ -413,7 +422,9 @@ async function listCustomerOrders(customerId) {
 
 async function getCustomerOrder(id, customerId) {
   const order = await Order.findOne({ _id: id, customerId });
+
   if (!order) throw new Error("Order not found");
+
   return order;
 }
 

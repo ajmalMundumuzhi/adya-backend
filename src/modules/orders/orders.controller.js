@@ -6,7 +6,10 @@ const {
 } = require("./orders.validation");
 
 function handleError(res, error) {
-  const status = error.statusCode ||
+  console.error("❌ ORDERS API ERROR:", error.stack || error);
+
+  const status =
+    error.statusCode ||
     (error.name === "ZodError" ||
     error.name === "ValidationError" ? 400 :
     error.name === "CastError" ? 400 :
@@ -15,7 +18,7 @@ function handleError(res, error) {
   return res.status(status).json({
     success: false,
     message: status === 500
-      ? "Internal server error"
+      ? error.message || "Internal server error"
       : error.message
   });
 }
