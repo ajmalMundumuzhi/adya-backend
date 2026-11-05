@@ -1,266 +1,130 @@
-﻿const repository = require("./products.repository");
+﻿
+const mongoose = require("mongoose");
+const repository = require("./products.repository");
 
-function filterVariants(variants, query) {
-  return variants
-    .filter((variant) => {
-      if (variant.isActive === false) return false;
-
-      if (
-        query.color &&
-        !String(variant.color || "")
-          .toLowerCase()
-          .includes(String(query.color).toLowerCase())
-      ) {
-        return false;
-      }
-
-      return true;
-    })
-    .map((variant) => {
-      const sizes = (variant.sizes || []).filter((size) => {
-        if (size.isActive === false) return false;
-
-        if (
-          query.minPrice !== undefined &&
-          size.price < Number(query.minPrice)
-        ) {
-          return false;
-        }
-
-        if (
-          query.maxPrice !== undefined &&
-          size.price > Number(query.maxPrice)
-        ) {
-          return false;
-        }
-
-        if (query.inStock === "true" && size.stock <= 0) {
-          return false;
-        }
-
-        if (
-          query.onSale === "true" &&
-          !(size.compareAtPrice > size.price)
-        ) {
-          return false;
-        }
-
-        return true;
-      });
-
-      return {
-        ...variant,
-        sizes,
-      };
-    })
-    .filter((variant) => variant.sizes.length > 0);
+function makeError(message, statusCode) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
 }
 
-function formatProduct(product, variants) {
-  const allSizes = variants.flatMap((variant) => variant.sizes || []);
+async function list(query = {}) {
+  const page = Math.max(1, Number(query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
+  const skip = (page - 1) * limit;
 
-  const prices = allSizes.map((size) => Number(size.price));
+  const filter = {};
 
-  const lowestPricedSize = allSizes.reduce((lowest, size) => {
-    if (!lowest || Number(size.price) < Number(lowest.price)) {
-      return size;
-    }
+  if (query.search) {
+    const search = String(query.search).trim();
+    const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-    return lowest;
-  }, null);
+    filter.$or = [
+      { name: { $regex: escapedSearch, $options: "i" } },
+      { slug: { $regex: escapedSearch, $options: "i" } },
+      { sku: { $regex: escapedSearch, $options: "i" } }
+    ];
+  }
 
-  const firstVariant = variants[0];
-
-  const allImages = variants.flatMap((variant) => variant.images || []);
-
-  return {
-    ...product,
-    variants,
-    price: prices.length ? Math.min(...prices) : 0,
-    compareAtPrice: lowestPricedSize?.compareAtPrice ?? null,
-    imagePath: firstVariant?.images?.[0] || null,
-    images: allImages,
-    stock: allSizes.reduce(
-      (total, size) => total + Number(size.stock || 0),
-      0
-    ),
-  };
-}
-
-async function list(query) {
-  const page = Math.max(
-    1,
-    Number.parseInt(query.page, 10) || 1
-  );
-
-  const limit = Math.min(
-    100,
-    Math.max(1, Number.parseInt(query.limit, 10) || 12)
-  );
-
-  const filter = {
-    isActive: true,
-  };
-
-  if (query.categoryId) {
+  if (query.categoryId && mongoose.isValidObjectId(query.categoryId)) {
     filter.categoryId = query.categoryId;
   }
 
-  if (query.search) {
-    filter.$text = {
-      $search: String(query.search),
-    };
+  if (query.isActive !== undefined) {
+    filter.isActive = query.isActive === "true";
   }
 
-  const products = await repository.findAll(filter);
+  const [products, total] = await Promise.all([
+    repository.findAll(filter).skip(skip).limit(limit),
+    repository.count(filter)
+  ]);
 
-  if (!products.length) {
-    return {
-      products: [],
-      page,
-      limit,
-      total: 0,
-      pages: 0,
-    };
-  }
+  const productIds = products.map(product => product._id);
+  const variants = productIds.length
+    ? await repository.findVariants(productIds)
+    : [];
 
-  const productIds = products.map((product) => product._id);
-
-  const allVariants = await repository.findVariants(productIds);
-
-  const variantsByProduct = new Map();
-
-  for (const variant of allVariants) {
-    const key = String(variant.productId);
-
-    if (!variantsByProduct.has(key)) {
-      variantsByProduct.set(key, []);
-    }
-
-    variantsByProduct.get(key).push(variant);
-  }
-
-  let formattedProducts = products
-    .map((product) => {
-      const variants = filterVariants(
-        variantsByProduct.get(String(product._id)) || [],
-        query
-      );
-
-      if (!variants.length) return null;
-
-      return formatProduct(product, variants);
-    })
-    .filter(Boolean);
-
-  if (query.sort === "price-low") {
-    formattedProducts.sort((a, b) => a.price - b.price);
-  } else if (query.sort === "price-high") {
-    formattedProducts.sort((a, b) => b.price - a.price);
-  } else {
-    formattedProducts.sort(
-      (a, b) =>
-        new Date(b.createdAt) - new Date(a.createdAt)
-    );
-  }
-
-  const total = formattedProducts.length;
-
-  const startIndex = (page - 1) * limit;
-
-  formattedProducts = formattedProducts.slice(
-    startIndex,
-    startIndex + limit
-  );
+  const productsWithVariants = products.map(product => ({
+    ...product,
+    variants: variants.filter(
+      variant => variant.productId.toString() === product._id.toString()
+    )
+  }));
 
   return {
-    products: formattedProducts,
-    page,
-    limit,
-    total,
-    pages: Math.ceil(total / limit),
+    products: productsWithVariants,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    }
   };
 }
 
 async function getById(id) {
   const product = await repository.findById(id);
 
-  if (!product || product.isActive === false) {
+  if (!product) {
     return null;
   }
 
-  const variants = await repository.findVariantsByProductId(
-    product._id
-  );
+  const variants = await repository.findVariantsByProductId(product._id);
 
-  const activeVariants = filterVariants(variants, {});
-
-  if (!activeVariants.length) {
-    return {
-      ...product,
-      variants: [],
-      price: 0,
-      compareAtPrice: null,
-      imagePath: null,
-      images: [],
-      stock: 0,
-    };
-  }
-
-  return formatProduct(product, activeVariants);
+  return {
+    ...product,
+    variants
+  };
 }
 
 async function create(data) {
-  const { variants, ...productData } = data;
+  const { variants = [], ...productData } = data;
 
   const product = await repository.create(productData);
 
-  try {
-    const createdVariants = await repository.createVariants(
-      product._id,
-      variants
-    );
-
-    return formatProduct(
-      product.toObject(),
-      createdVariants.map((variant) => variant.toObject())
-    );
-  } catch (error) {
-    await repository.deactivate(product._id);
-    throw error;
+  if (variants.length) {
+    await repository.createVariants(product._id, variants);
   }
+
+  return getById(product._id);
 }
 
 async function update(id, data) {
+  if (!mongoose.isValidObjectId(id)) {
+    throw makeError("Invalid product ID", 400);
+  }
+
   const { variants, ...productData } = data;
 
-  let product;
+  const product = await repository.update(id, productData);
 
-  if (Object.keys(productData).length > 0) {
-    product = await repository.update(id, productData);
-  } else {
-    product = await repository.findById(id);
+  if (!product) {
+    return null;
   }
-
-  if (!product) return null;
-
-  const productId = product._id;
 
   if (variants !== undefined) {
-    await repository.deleteVariants(productId);
+    await repository.deleteVariants(product._id);
 
-    await repository.createVariants(productId, variants);
+    if (variants.length) {
+      await repository.createVariants(product._id, variants);
+    }
   }
 
-  return getById(productId);
+  return getById(product._id);
 }
 
 async function deactivate(id) {
+  if (!mongoose.isValidObjectId(id)) {
+    throw makeError("Invalid product ID", 400);
+  }
+
   const product = await repository.deactivate(id);
 
-  if (!product) return null;
+  if (!product) {
+    return null;
+  }
 
-  await repository.deactivateVariants(product._id);
+  await repository.deactivateVariants(id);
 
   return product;
 }
@@ -270,5 +134,5 @@ module.exports = {
   getById,
   create,
   update,
-  deactivate,
+  deactivate
 };

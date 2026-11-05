@@ -1,127 +1,149 @@
-﻿const service = require("./shipping.service");
-
+﻿
+const service = require("./shipping.service");
 const {
   createShippingRateSchema,
   updateShippingRateSchema
 } = require("./shipping.validation");
 
-function handleError(res, error) {
-  const status = error.statusCode ||
-    (
-      error.name === "ZodError" ||
-      error.name === "ValidationError" ||
-      error.name === "CastError"
-        ? 400
-        : error.code === 11000
-          ? 409
-          : 500
-    );
-
-  return res.status(status).json({
+function sendError(res, error) {
+  return res.status(error.statusCode || 500).json({
     success: false,
-    message: status === 500 ? "Internal server error" : error.message
+    message: error.message || "Something went wrong"
   });
 }
 
 async function list(req, res) {
   try {
-    return res.json({
+    const data = await service.listAll();
+
+    return res.status(200).json({
       success: true,
-      data: await service.listRates()
+      data
     });
   } catch (error) {
-    return handleError(res, error);
+    return sendError(res, error);
+  }
+}
+
+async function listCountries(req, res) {
+  try {
+    const data = await service.listActiveCountries();
+
+    return res.status(200).json({
+      success: true,
+      data
+    });
+  } catch (error) {
+    return sendError(res, error);
   }
 }
 
 async function getById(req, res) {
   try {
-    return res.json({
+    const data = await service.getById(req.params.id);
+
+    return res.status(200).json({
       success: true,
-      data: await service.getRate(req.params.id)
+      data
     });
   } catch (error) {
-    return handleError(res, error);
+    return sendError(res, error);
   }
 }
 
 async function create(req, res) {
   try {
-    const data = createShippingRateSchema.parse(req.body);
-    const rate = await service.createRate(data);
+    const parsed = createShippingRateSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid shipping configuration",
+        errors: parsed.error.flatten()
+      });
+    }
+
+    const data = await service.createCountry(parsed.data);
 
     return res.status(201).json({
       success: true,
-      data: rate
+      message: "Shipping country created successfully",
+      data
     });
   } catch (error) {
-    return handleError(res, error);
+    return sendError(res, error);
   }
 }
 
 async function update(req, res) {
   try {
-    const data = updateShippingRateSchema.parse(req.body);
-    const rate = await service.updateRate(req.params.id, data);
+    const parsed = updateShippingRateSchema.safeParse(req.body);
 
-    return res.json({
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid shipping configuration",
+        errors: parsed.error.flatten()
+      });
+    }
+
+    const data = await service.updateCountry(req.params.id, parsed.data);
+
+    return res.status(200).json({
       success: true,
-      data: rate
+      message: "Shipping country updated successfully",
+      data
     });
   } catch (error) {
-    return handleError(res, error);
+    return sendError(res, error);
   }
 }
 
 async function remove(req, res) {
   try {
-    await service.deleteRate(req.params.id);
+    await service.deleteCountry(req.params.id);
 
-    return res.json({
+    return res.status(200).json({
       success: true,
-      message: "Shipping rate deleted successfully"
+      message: "Shipping country deleted successfully"
     });
   } catch (error) {
-    return handleError(res, error);
+    return sendError(res, error);
   }
 }
 
-async function getByCountry(req, res) {
+async function quote(req, res) {
   try {
-    const { country, city } = req.query;
+    const { country, city, items } = req.body;
 
-    if (!country) {
+    if (!country || !city || !Array.isArray(items)) {
       return res.status(400).json({
         success: false,
-        message: "Country query parameter is required"
+        message: "Country, city and cart items are required"
       });
     }
 
-    if (city) {
-      const rate = await service.getRateByCountryAndCity(country, city);
+    const data = await service.getShippingQuote({
+      country,
+      city,
+      items
+    });
 
-      return res.json({
-        success: true,
-        data: rate
-      });
-    }
-
-    const rates = await service.getRatesByCountry(country);
-
-    return res.json({
+    return res.status(200).json({
       success: true,
-      data: rates
+      data
     });
   } catch (error) {
-    return handleError(res, error);
+    return sendError(res, error);
   }
 }
 
 module.exports = {
   list,
+  listCountries,
   getById,
   create,
   update,
   remove,
-  getByCountry
+  quote
 };

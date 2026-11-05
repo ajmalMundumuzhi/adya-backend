@@ -1,11 +1,21 @@
-﻿const express = require("express");
+﻿
+const express = require("express");
 const controller = require("./settings.controller");
 const { requireAdmin } = require("../../middleware/auth");
+const upload = require("../../middleware/siteSettingsUpload");
 
 const router = express.Router();
 
 router.get("/", controller.list);
 router.get("/:key", controller.getByKey);
+
+router.post(
+  "/upload",
+  requireAdmin,
+  upload.single("image"),
+  controller.uploadSiteImage
+);
+
 router.post("/", requireAdmin, controller.create);
 router.put("/:key", requireAdmin, controller.update);
 router.delete("/:key", requireAdmin, controller.remove);

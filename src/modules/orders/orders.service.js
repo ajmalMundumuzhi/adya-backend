@@ -9,47 +9,30 @@ const User = require("../../models/User");
 const ShippingRate = require("../../models/ShippingRate");
 const { getCurrencyRates } = require("../currency/currency.service");
 
-const SUPPORTED_COUNTRIES = {
-  Australia: "AUD",
-  "New Zealand": "NZD",
-  "United States": "USD",
-  Canada: "CAD",
-  "United Kingdom": "GBP",
-  Malaysia: "MYR",
-  Singapore: "SGD"
-};
-
 const roundMoney = value =>
   Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+
+function createError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
 
 function createOrderNumber() {
   return `ADY-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
-function normalizeCountry(country) {
-  const value = String(country || "").trim().toLowerCase();
+function normalize(value) {
+  return String(value || "").trim().toLowerCase();
+}
 
-  const aliases = {
-    australia: "Australia",
-    au: "Australia",
-    "new zealand": "New Zealand",
-    nz: "New Zealand",
-    "united states": "United States",
-    "united states of america": "United States",
-    usa: "United States",
-    us: "United States",
-    canada: "Canada",
-    ca: "Canada",
-    "united kingdom": "United Kingdom",
-    uk: "United Kingdom",
-    gb: "United Kingdom",
-    malaysia: "Malaysia",
-    my: "Malaysia",
-    singapore: "Singapore",
-    sg: "Singapore"
-  };
+function findMatchingSlab(slabs, totalWeightGrams) {
+  return slabs.find(slab => {
+    const min = Number(slab.minWeightGrams);
+    const max = Number(slab.maxWeightGrams);
 
-  return aliases[value] || null;
+    return totalWeightGrams > min && totalWeightGrams <= max;
+  });
 }
 
 async function reserveVariantStock(item, session) {
@@ -79,8 +62,9 @@ async function reserveVariantStock(item, session) {
   );
 
   if (!variant) {
-    throw new Error(
-      "A selected product size is unavailable or has insufficient stock"
+    throw createError(
+      "A selected product size is unavailable or has insufficient stock",
+      409
     );
   }
 
@@ -106,12 +90,65 @@ async function releaseOrderStock(order, session) {
     );
 
     if (result.matchedCount === 0) {
-      throw new Error(`Unable to restore stock for ${item.productName}`);
+      throw createError(
+        `Unable to restore stock for ${item.productName}`,
+        409
+      );
     }
   }
 
   order.stockReserved = false;
   order.stockReservationExpiresAt = null;
+}
+
+async function getCountryConfig(country, session) {
+  const countryConfig = await ShippingRate.findOne({
+    $or: [
+      { country: new RegExp(`^${String(country).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+      { countryCode: String(country).toUpperCase() }
+    ],
+    isActive: true
+  }).session(session);
+
+  if (!countryConfig) {
+    throw createError("Shipping is not available for this country", 404);
+  }
+
+  return countryConfig;
+}
+
+async function calculateShipping(countryConfig, city, totalWeightGrams) {
+  const cityConfig = countryConfig.cityOverrides.find(
+    entry =>
+      entry.isActive &&
+      normalize(entry.city) === normalize(city)
+  );
+
+  const slabs = cityConfig
+    ? cityConfig.weightSlabs
+    : countryConfig.weightSlabs;
+
+  const slab = findMatchingSlab(slabs, totalWeightGrams);
+
+  if (!slab) {
+    throw createError(
+      `Shipping is not configured for a total weight of ${totalWeightGrams}g`,
+      422
+    );
+  }
+
+  return {
+    rate: Number(slab.rate),
+    totalWeightGrams,
+    shippingSlab: {
+      label: slab.label,
+      minWeightGrams: slab.minWeightGrams,
+      maxWeightGrams: slab.maxWeightGrams,
+      rate: slab.rate,
+      rateType: cityConfig ? "city" : "country",
+      city: cityConfig?.city || null
+    }
+  };
 }
 
 async function createOrder(data) {
@@ -123,7 +160,7 @@ async function createOrder(data) {
       const customerId = data.customerId;
 
       if (!customerId) {
-        throw new Error("Customer authentication is required");
+        throw createError("Customer authentication is required", 401);
       }
 
       const address = await Address.findOne({
@@ -132,43 +169,30 @@ async function createOrder(data) {
       }).session(session);
 
       if (!address) {
-        throw new Error("Delivery address was not found");
+        throw createError("Delivery address was not found", 404);
       }
 
-      const country = normalizeCountry(address.country);
+      const countryConfig = await getCountryConfig(
+        address.country,
+        session
+      );
 
-      if (!country) {
-        throw new Error(
-          "Delivery is available only in the seven supported countries"
+      if (data.currency !== countryConfig.currency) {
+        throw createError(
+          "Selected currency does not match the delivery country"
         );
-      }
-
-      const expectedCurrency = SUPPORTED_COUNTRIES[country];
-
-      if (data.currency !== expectedCurrency) {
-        throw new Error("Selected currency does not match the delivery country");
       }
 
       const user = await User.findById(customerId).session(session);
 
       if (!user) {
-        throw new Error("Customer account was not found");
+        throw createError("Customer account was not found", 404);
       }
 
       const customerEmail = user.email || user.customerEmail;
 
       if (!customerEmail) {
-        throw new Error("Your account does not have an email address");
-      }
-
-      const shippingRate = await ShippingRate.findOne({
-        country,
-        city: address.city.trim(),
-        isActive: true
-      }).session(session);
-
-      if (!shippingRate) {
-        throw new Error("Shipping is not available for this city yet");
+        throw createError("Your account does not have an email address");
       }
 
       const currencyData = await getCurrencyRates(data.currency);
@@ -180,7 +204,7 @@ async function createOrder(data) {
       );
 
       if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
-        throw new Error("Unable to obtain a valid exchange rate");
+        throw createError("Unable to obtain a valid exchange rate");
       }
 
       const exchangeRateDate =
@@ -206,11 +230,12 @@ async function createOrder(data) {
       const requestedItems = [...mergedItems.values()];
 
       if (requestedItems.some(item => item.quantity > 100)) {
-        throw new Error("Maximum quantity per product size is 100");
+        throw createError("Maximum quantity per product size is 100");
       }
 
       const orderItems = [];
       let subtotalAUD = 0;
+      let totalWeightGrams = 0;
 
       for (const item of requestedItems) {
         const product = await Product.findOne({
@@ -219,21 +244,31 @@ async function createOrder(data) {
         }).session(session);
 
         if (!product) {
-          throw new Error("A selected product is no longer available");
+          throw createError("A selected product is no longer available", 404);
         }
 
         const variant = await reserveVariantStock(item, session);
         const sizeOption = variant.sizes.id(item.sizeOptionId);
 
         if (!sizeOption || !sizeOption.isActive) {
-          throw new Error("A selected size is no longer available");
+          throw createError("A selected size is no longer available", 404);
         }
 
         const unitPriceAUD = Number(sizeOption.price);
+        const weightGrams = Number(sizeOption.weightGrams);
 
         if (!Number.isFinite(unitPriceAUD) || unitPriceAUD < 0) {
-          throw new Error("Invalid product price");
+          throw createError("Invalid product price");
         }
+
+        if (!Number.isFinite(weightGrams) || weightGrams <= 0) {
+          throw createError(
+            `A valid weight is missing for ${product.name}`
+          );
+        }
+
+        const itemWeightGrams = weightGrams * item.quantity;
+        totalWeightGrams += itemWeightGrams;
 
         const unitPrice = roundMoney(unitPriceAUD * exchangeRate);
         const itemSubtotal = roundMoney(unitPrice * item.quantity);
@@ -250,6 +285,8 @@ async function createOrder(data) {
           selectedSize: sizeOption.size,
           sku: sizeOption.sku || "",
           quantity: item.quantity,
+          weightGrams,
+          totalWeightGrams: itemWeightGrams,
           unitPriceAUD,
           unitPrice,
           subtotal: itemSubtotal
@@ -257,8 +294,15 @@ async function createOrder(data) {
       }
 
       subtotalAUD = roundMoney(subtotalAUD);
+      totalWeightGrams = Math.ceil(totalWeightGrams);
 
-      const shippingChargeAUD = roundMoney(shippingRate.rate);
+      const shipping = await calculateShipping(
+        countryConfig,
+        address.city,
+        totalWeightGrams
+      );
+
+      const shippingChargeAUD = roundMoney(shipping.rate);
       const totalAmountAUD = roundMoney(subtotalAUD + shippingChargeAUD);
 
       const subtotal = roundMoney(subtotalAUD * exchangeRate);
@@ -273,7 +317,7 @@ async function createOrder(data) {
         city: address.city,
         state: address.state,
         postalCode: address.postalCode,
-        country
+        country: countryConfig.country
       };
 
       const order = new Order({
@@ -285,8 +329,10 @@ async function createOrder(data) {
         phone: address.phone,
         addressId: address._id,
         shippingAddress,
-        country,
+        country: countryConfig.country,
         city: address.city,
+        totalWeightGrams,
+        shippingSlab: shipping.shippingSlab,
         subtotalAUD,
         shippingChargeAUD,
         totalAmountAUD,
@@ -323,15 +369,11 @@ async function updateOrder(id, data) {
       const order = await Order.findById(id).session(session);
 
       if (!order) {
-        const error = new Error("Order not found");
-        error.statusCode = 404;
-        throw error;
+        throw createError("Order not found", 404);
       }
 
       if (["delivered", "cancelled"].includes(order.status)) {
-        const error = new Error("This order can no longer be updated");
-        error.statusCode = 409;
-        throw error;
+        throw createError("This order can no longer be updated", 409);
       }
 
       if (
@@ -339,22 +381,19 @@ async function updateOrder(id, data) {
         !data.trackingNumber &&
         !order.trackingNumber
       ) {
-        const error = new Error(
+        throw createError(
           "A tracking number is required before shipping"
         );
-        error.statusCode = 400;
-        throw error;
       }
 
       const updateFields = {};
 
       if (data.status === "cancelled") {
         if (order.paymentStatus === "paid") {
-          const error = new Error(
-            "A paid order must be refunded before cancellation"
+          throw createError(
+            "A paid order must be refunded before cancellation",
+            409
           );
-          error.statusCode = 409;
-          throw error;
         }
 
         await releaseOrderStock(order, session);
@@ -390,9 +429,7 @@ async function updateOrder(id, data) {
       );
 
       if (result.matchedCount === 0) {
-        const error = new Error("Order not found");
-        error.statusCode = 404;
-        throw error;
+        throw createError("Order not found", 404);
       }
 
       updatedOrder = await Order.findById(id).session(session);
@@ -411,7 +448,9 @@ async function listOrders() {
 async function getOrder(id) {
   const order = await Order.findById(id);
 
-  if (!order) throw new Error("Order not found");
+  if (!order) {
+    throw createError("Order not found", 404);
+  }
 
   return order;
 }
@@ -423,7 +462,9 @@ async function listCustomerOrders(customerId) {
 async function getCustomerOrder(id, customerId) {
   const order = await Order.findOne({ _id: id, customerId });
 
-  if (!order) throw new Error("Order not found");
+  if (!order) {
+    throw createError("Order not found", 404);
+  }
 
   return order;
 }

@@ -1,50 +1,60 @@
-﻿const ShippingRate = require("../../models/ShippingRate");
+﻿
+const ShippingRate = require("../../models/ShippingRate");
 
-function findAll() {
-  return ShippingRate.find().sort({ country: 1, city: 1 });
+async function findAll() {
+  return ShippingRate.find().sort({ country: 1 });
 }
 
-function findById(id) {
+async function findActiveCountries() {
+  return ShippingRate.find({ isActive: true })
+    .select("country countryCode currency locale flag isActive")
+    .sort({ country: 1 })
+    .lean();
+}
+
+async function findById(id) {
   return ShippingRate.findById(id);
 }
 
-function findByCountry(country) {
-  return ShippingRate.find({
-    country: new RegExp(`^${escapeRegex(country)}$`, "i")
-  }).sort({ city: 1 });
-}
-
-function findByCountryAndCity(country, city) {
+async function findByCountryCode(countryCode) {
   return ShippingRate.findOne({
-    country: new RegExp(`^${escapeRegex(country)}$`, "i"),
-    city: new RegExp(`^${escapeRegex(city)}$`, "i")
+    countryCode: String(countryCode).toUpperCase()
   });
 }
 
-function escapeRegex(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+async function findByCountry(country) {
+  return ShippingRate.findOne({
+    country: new RegExp(`^${escapeRegex(country)}$`, "i"),
+    isActive: true
+  });
 }
 
-function create(data) {
+async function create(data) {
   return ShippingRate.create(data);
 }
 
-function update(id, data) {
-  return ShippingRate.findByIdAndUpdate(id, data, {
-    returnDocument: "after",
-    runValidators: true
-  });
+async function update(id, data) {
+  return ShippingRate.findByIdAndUpdate(
+    id,
+    { $set: data },
+    { new: true, runValidators: true }
+  );
 }
 
-function remove(id) {
+async function remove(id) {
   return ShippingRate.findByIdAndDelete(id);
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 module.exports = {
   findAll,
+  findActiveCountries,
   findById,
+  findByCountryCode,
   findByCountry,
-  findByCountryAndCity,
   create,
   update,
   remove

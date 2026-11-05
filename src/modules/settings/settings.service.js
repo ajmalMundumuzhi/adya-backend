@@ -1,53 +1,49 @@
-﻿const repository = require("./settings.repository");
+﻿
+const repository = require("./settings.repository");
 const { inventoryThresholdSchema } = require("./settings.validation");
 
 const INVENTORY_THRESHOLD_KEY = "inventory.lowStockThreshold";
 const DEFAULT_INVENTORY_THRESHOLD = 5;
 
-console.log("Inventory threshold schema:", typeof inventoryThresholdSchema);
-
-function makeError(message, statusCode) {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
-}
-
 async function listSettings() {
   return repository.findAll();
 }
 
+
 async function getSetting(key) {
   if (key === INVENTORY_THRESHOLD_KEY) {
-    const threshold = await getInventoryThreshold();
+    const value = await getInventoryThreshold();
 
     return {
-      key: INVENTORY_THRESHOLD_KEY,
-      value: threshold
+      key,
+      value,
     };
   }
 
   const setting = await repository.findByKey(key);
 
   if (!setting) {
-    throw makeError("Setting not found", 404);
+    return {
+      key,
+      value: null,
+    };
   }
 
   return setting;
 }
 
+
 async function createSetting(data) {
   const existing = await repository.findByKey(data.key);
 
   if (existing) {
-    throw makeError("Setting key already exists", 409);
+    const error = new Error("Setting already exists.");
+    error.statusCode = 409;
+    throw error;
   }
 
   if (data.key === INVENTORY_THRESHOLD_KEY) {
-    const result = inventoryThresholdSchema.safeParse(data.value);
-
-    if (!result.success) {
-      throw makeError(result.error.issues[0].message, 400);
-    }
+    validateInventoryThreshold(data.value);
   }
 
   return repository.create(data);
@@ -55,44 +51,57 @@ async function createSetting(data) {
 
 async function updateSetting(key, value) {
   if (!key || key.length > 150) {
-    throw makeError("Invalid setting key", 400);
+    const error = new Error("Invalid setting key.");
+    error.statusCode = 400;
+    throw error;
   }
 
   if (key === INVENTORY_THRESHOLD_KEY) {
-    const result = inventoryThresholdSchema.safeParse(value);
-
-    if (!result.success) {
-      throw makeError(result.error.issues[0].message, 400);
-    }
+    validateInventoryThreshold(value);
   }
 
   return repository.updateByKey(key, value);
 }
 
 async function deleteSetting(key) {
-  const setting = await repository.findByKey(key);
+  const setting = await repository.removeByKey(key);
 
   if (!setting) {
-    throw makeError("Setting not found", 404);
+    const error = new Error("Setting not found.");
+    error.statusCode = 404;
+    throw error;
   }
 
-  await repository.removeByKey(key);
+  return setting;
 }
 
 async function getInventoryThreshold() {
-  const setting = await repository.findByKey(INVENTORY_THRESHOLD_KEY);
+  const setting = await repository.findByKey(
+    INVENTORY_THRESHOLD_KEY
+  );
 
   if (!setting) {
     return DEFAULT_INVENTORY_THRESHOLD;
   }
 
-  const result = inventoryThresholdSchema.safeParse(setting.value);
-
-  if (!result.success) {
+  try {
+    validateInventoryThreshold(setting.value);
+    return setting.value;
+  } catch {
     return DEFAULT_INVENTORY_THRESHOLD;
   }
+}
 
-  return result.data;
+function validateInventoryThreshold(value) {
+  const result = inventoryThresholdSchema.safeParse(value);
+
+  if (!result.success) {
+    const error = new Error(
+      result.error.issues[0].message
+    );
+    error.statusCode = 400;
+    throw error;
+  }
 }
 
 module.exports = {
@@ -101,5 +110,5 @@ module.exports = {
   createSetting,
   updateSetting,
   deleteSetting,
-  getInventoryThreshold
+  getInventoryThreshold,
 };

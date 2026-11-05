@@ -1,5 +1,4 @@
-﻿
-const mongoose = require("mongoose");
+﻿const mongoose = require("mongoose");
 
 const orderItemSchema = new mongoose.Schema({
   productId: {
@@ -37,6 +36,16 @@ const orderItemSchema = new mongoose.Schema({
     default: ""
   },
   quantity: {
+    type: Number,
+    required: true,
+    min: 1
+  },
+  weightGrams: {
+    type: Number,
+    required: true,
+    min: 1
+  },
+  totalWeightGrams: {
     type: Number,
     required: true,
     min: 1
@@ -105,6 +114,15 @@ const orderSchema = new mongoose.Schema({
   },
   city: {
     type: String,
+    required: true
+  },
+  totalWeightGrams: {
+    type: Number,
+    required: true,
+    min: 1
+  },
+  shippingSlab: {
+    type: mongoose.Schema.Types.Mixed,
     required: true
   },
   subtotalAUD: {

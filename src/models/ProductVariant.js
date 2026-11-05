@@ -1,4 +1,3 @@
-
 const mongoose = require("mongoose");
 
 const sizeOptionSchema = new mongoose.Schema({
@@ -20,6 +19,11 @@ const sizeOptionSchema = new mongoose.Schema({
     type: Number,
     min: 0,
     default: null
+  },
+  weightGrams: {
+    type: Number,
+    required: true,
+    min: 1
   },
   stock: {
     type: Number,
@@ -49,7 +53,7 @@ const productVariantSchema = new mongoose.Schema({
   sizes: {
     type: [sizeOptionSchema],
     validate: {
-      validator: (sizes) => sizes.length > 0,
+      validator: sizes => sizes.length > 0,
       message: "At least one size option is required"
     }
   },

@@ -1,62 +1,142 @@
-﻿const service = require("./settings.service");
-const { settingSchema, updateSettingSchema } = require("./settings.validation");
+﻿
+const service = require("./settings.service");
+const {
+  settingSchema,
+  updateSettingSchema,
+} = require("./settings.validation");
+const {
+  uploadSiteImage: uploadToCloudinary,
+} = require("../../utils/uploadImage");
 
-function handleError(res, error) {
-  console.error("Settings API Error:", error);
-
-  const status = error.statusCode ||
-    (error.name === "ZodError" || error.name === "ValidationError" ? 400 :
-    error.code === 11000 ? 409 : 500);
-
-  return res.status(status).json({
-    success: false,
-    message: status === 500 ? "Internal server error" : error.message
-  });
-}
-
-async function list(req, res) {
+async function list(req, res, next) {
   try {
-    return res.json({ success: true, data: await service.listSettings() });
+    const data = await service.listSettings();
+
+    res.status(200).json({
+      success: true,
+      data,
+    });
   } catch (error) {
-    return handleError(res, error);
+    next(error);
   }
 }
 
-async function getByKey(req, res) {
+async function getByKey(req, res, next) {
   try {
-    return res.json({ success: true, data: await service.getSetting(req.params.key) });
+    const data = await service.getSetting(req.params.key);
+
+    res.status(200).json({
+      success: true,
+      data,
+    });
   } catch (error) {
-    return handleError(res, error);
+    next(error);
   }
 }
 
-async function create(req, res) {
+async function create(req, res, next) {
   try {
-    const data = settingSchema.parse(req.body);
-    const setting = await service.createSetting(data);
-    return res.status(201).json({ success: true, data: setting });
+    const validation = settingSchema.safeParse(req.body);
+
+    if (!validation.success) {
+      return res.status(400).json({
+        success: false,
+        message: validation.error.issues[0].message,
+      });
+    }
+
+    const data = await service.createSetting(validation.data);
+
+    res.status(201).json({
+      success: true,
+      message: "Setting created successfully.",
+      data,
+    });
   } catch (error) {
-    return handleError(res, error);
+    next(error);
   }
 }
 
-async function update(req, res) {
+async function update(req, res, next) {
   try {
-    const data = updateSettingSchema.parse(req.body);
-    const setting = await service.updateSetting(req.params.key, data.value);
-    return res.json({ success: true, data: setting });
+    const validation = updateSettingSchema.safeParse(req.body);
+
+    if (!validation.success) {
+      return res.status(400).json({
+        success: false,
+        message: validation.error.issues[0].message,
+      });
+    }
+
+    const data = await service.updateSetting(
+      req.params.key,
+      validation.data.value
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Setting updated successfully.",
+      data,
+    });
   } catch (error) {
-    return handleError(res, error);
+    next(error);
   }
 }
 
-async function remove(req, res) {
+async function remove(req, res, next) {
   try {
     await service.deleteSetting(req.params.key);
-    return res.json({ success: true, message: "Setting deleted successfully" });
+
+    res.status(200).json({
+      success: true,
+      message: "Setting deleted successfully.",
+    });
   } catch (error) {
-    return handleError(res, error);
+    next(error);
   }
 }
 
-module.exports = { list, getByKey, create, update, remove };
+async function uploadSiteImageController(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Please select an image.",
+      });
+    }
+
+    const { assetType } = req.body;
+
+    if (!["logo", "favicon"].includes(assetType)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid website asset type.",
+      });
+    }
+
+    const result = await uploadToCloudinary(
+      req.file.buffer,
+      assetType
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Image uploaded successfully.",
+      data: {
+        url: result.secure_url,
+        publicId: result.public_id,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+module.exports = {
+  list,
+  getByKey,
+  create,
+  update,
+  remove,
+  uploadSiteImage: uploadSiteImageController,
+};
