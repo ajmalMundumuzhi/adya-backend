@@ -2,19 +2,22 @@
 const { z } = require("zod");
 
 const sizeOptionSchema = z.object({
-  size: z.string().trim().min(1),
+  size: z.string().trim().min(1, "Size is required"),
   sku: z.string().trim().optional(),
   price: z.coerce.number().nonnegative(),
   compareAtPrice: z.coerce.number().nonnegative().nullable().optional(),
+  weightGrams: z.coerce.number().int().positive({
+    message: "Weight must be greater than 0 grams"
+  }),
   stock: z.coerce.number().int().nonnegative().default(0),
-  isActive: z.boolean().default(true),
+  isActive: z.boolean().default(true)
 });
 
 const productVariantSchema = z.object({
-  color: z.string().trim().min(1),
+  color: z.string().trim().min(1, "Colour is required"),
   images: z.array(z.string().url()).default([]),
   sizes: z.array(sizeOptionSchema).min(1),
-  isActive: z.boolean().default(true),
+  isActive: z.boolean().default(true)
 });
 
 const createProductSchema = z.object({
@@ -26,9 +29,9 @@ const createProductSchema = z.object({
   offerId: z.string().nullable().optional(),
   isActive: z.boolean().default(true),
   details: z.record(z.string(), z.unknown()).optional().default({}),
-  variants: z.array(productVariantSchema).min(1),
+  variants: z.array(productVariantSchema).min(1)
 });
 
 module.exports = {
-  createProductSchema,
+  createProductSchema
 };

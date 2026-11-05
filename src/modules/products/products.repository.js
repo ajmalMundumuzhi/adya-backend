@@ -29,34 +29,49 @@ function findById(id) {
 
 function findVariants(productIds) {
   return ProductVariant.find({
-    productId: { $in: productIds },
+    productId: { $in: productIds }
   }).lean();
 }
 
 function findVariantsByProductId(productId) {
   return ProductVariant.find({
     productId,
-    isActive: true,
+    isActive: true
   }).lean();
 }
 
-function create(data) {
+async function create(data) {
   return Product.create(data);
 }
 
-function createVariants(productId, variants) {
-  const variantDocuments = variants.map((variant) => ({
-    ...variant,
+async function createVariants(productId, variants) {
+  if (!Array.isArray(variants) || variants.length === 0) {
+    throw new Error("At least one product variant is required");
+  }
+
+  const documents = variants.map((variant) => ({
     productId,
+    color: variant.color,
+    images: variant.images || [],
+    sizes: variant.sizes,
+    isActive: variant.isActive !== false
   }));
 
-  return ProductVariant.insertMany(variantDocuments);
+  const insertedVariants = await ProductVariant.insertMany(documents, {
+    ordered: true
+  });
+
+  if (insertedVariants.length !== documents.length) {
+    throw new Error("Not all product variants were saved");
+  }
+
+  return insertedVariants;
 }
 
 function update(id, data) {
   return Product.findByIdAndUpdate(id, data, {
     returnDocument: "after",
-    runValidators: true,
+    runValidators: true
   })
     .populate("categoryId", "name slug")
     .populate("subcategoryIds", "name slug")
@@ -82,6 +97,10 @@ function deactivate(id) {
   );
 }
 
+function deleteProduct(productId) {
+  return Product.findByIdAndDelete(productId);
+}
+
 module.exports = {
   findAll,
   count,
@@ -94,4 +113,5 @@ module.exports = {
   deleteVariants,
   deactivateVariants,
   deactivate,
+  deleteProduct
 };

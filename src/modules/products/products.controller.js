@@ -4,29 +4,35 @@ const { createProductSchema } = require("./products.validation");
 const cloudinaryService = require("../../services/cloudinary.service");
 
 function sendError(res, error) {
-  if (
-    error.name === "ValidationError" ||
-    error.name === "CastError" ||
-    error.name === "ZodError"
-  ) {
+  console.error("PRODUCT API ERROR:", error);
+
+  if (error.name === "ZodError") {
     return res.status(400).json({
       success: false,
-      message: error.message,
+      message: "Product validation failed",
+      errors: error.issues
+    });
+  }
+
+  if (error.name === "ValidationError" || error.name === "CastError") {
+    return res.status(400).json({
+      success: false,
+      message: error.message
     });
   }
 
   if (error.code === 11000) {
     return res.status(409).json({
       success: false,
-      message: "Duplicate product or SKU value",
+      message: "Duplicate product or SKU value"
     });
   }
 
-  console.error(error);
-
-  return res.status(500).json({
+  return res.status(error.statusCode || 500).json({
     success: false,
-    message: "Internal server error",
+    message: error.statusCode
+      ? error.message
+      : "Internal server error"
   });
 }
 
@@ -34,12 +40,12 @@ async function list(req, res) {
   try {
     const result = await service.list(req.query);
 
-    res.json({
+    return res.json({
       success: true,
-      ...result,
+      ...result
     });
   } catch (error) {
-    sendError(res, error);
+    return sendError(res, error);
   }
 }
 
@@ -50,76 +56,74 @@ async function getById(req, res) {
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: "Product not found",
+        message: "Product not found"
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
-      product,
+      product
     });
   } catch (error) {
-    sendError(res, error);
+    return sendError(res, error);
   }
 }
 
 async function create(req, res) {
   try {
     const data = createProductSchema.parse(req.body);
-
     const product = await service.create(data);
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Product created successfully",
-      product,
+      product
     });
   } catch (error) {
-    sendError(res, error);
+    return sendError(res, error);
   }
 }
 
 async function update(req, res) {
   try {
     const data = createProductSchema.partial().parse(req.body);
-
     const product = await service.update(req.params.id, data);
 
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: "Product not found",
+        message: "Product not found"
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: "Product updated successfully",
-      product,
+      product
     });
   } catch (error) {
-    sendError(res, error);
+    return sendError(res, error);
   }
 }
 
 async function deactivate(req, res) {
   try {
-    const product = await service.deactivate(req.params.id);
+    const product = await service.deletePermanently(req.params.id);
 
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: "Product not found",
+        message: "Product not found"
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
-      message: "Product deactivated successfully",
-      product,
+      message: "Product permanently deleted successfully",
+      deletedProductId: String(product._id)
     });
   } catch (error) {
-    sendError(res, error);
+    return sendError(res, error);
   }
 }
 
@@ -128,7 +132,7 @@ async function uploadProductImage(req, res) {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Please select at least one image",
+        message: "Please select at least one image"
       });
     }
 
@@ -138,16 +142,16 @@ async function uploadProductImage(req, res) {
       )
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Product images uploaded successfully",
       images: results.map((result) => ({
         imageUrl: result.secure_url,
-        publicId: result.public_id,
-      })),
+        publicId: result.public_id
+      }))
     });
   } catch (error) {
-    sendError(res, error);
+    return sendError(res, error);
   }
 }
 
@@ -157,5 +161,5 @@ module.exports = {
   create,
   update,
   deactivate,
-  uploadProductImage,
+  uploadProductImage
 };
