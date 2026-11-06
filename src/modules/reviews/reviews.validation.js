@@ -1,21 +1,18 @@
 ﻿const { z } = require("zod");
 
 const createReviewSchema = z.object({
-  productId: z.string().min(1),
-  name: z.string().trim().min(1),
+  productId: z.string().regex(/^[0-9a-fA-F]{24}$/, {
+    message: "Invalid product ID"
+  }),
   rating: z.coerce.number().int().min(1).max(5),
-  text: z.string().trim().min(1),
-  imageUrl: z.string().trim().optional().default("")
+  text: z.string().trim().min(1).max(2000)
 });
 
 const updateReviewSchema = z.object({
-  name: z.string().trim().min(1).optional(),
-  rating: z.coerce.number().int().min(1).max(5).optional(),
-  text: z.string().trim().min(1).optional(),
-  imageUrl: z.string().trim().optional(),
-  status: z.enum(["Pending", "Approved", "Rejected"]).optional()
-}).refine(data => Object.keys(data).length > 0, {
-  message: "Provide at least one field to update"
+  status: z.enum(["Pending", "Approved", "Rejected"])
 });
 
-module.exports = { createReviewSchema, updateReviewSchema };
+module.exports = {
+  createReviewSchema,
+  updateReviewSchema
+};
